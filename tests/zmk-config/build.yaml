@@ -1,6 +1,6 @@
 include:
   - artifact: test_board
-    board: seeeduino_xiao_ble
+    board: xiao_ble
     shield: tester_xiao
 
 ---
