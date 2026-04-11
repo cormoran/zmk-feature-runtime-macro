@@ -1,5 +1,7 @@
 # cormoran's ZMK Module Template for ZMK v0.3
 
+[![Test](https://github.com/cormoran/zmk-module-template/actions/workflows/zmk-module.yml/badge.svg?branch=main)](https://github.com/cormoran/zmk-module-template/actions/workflows/zmk-module.yml) [![Devcontainer](https://github.com/cormoran/zmk-module-template/actions/workflows/devcontainer.yml/badge.svg?branch=main)](https://github.com/cormoran/zmk-module-template/actions/workflows/devcontainer.yml)
+
 This repository contains a template for a ZMK module, as it would most frequently be used.
 
 It's extended from ZMK official template with applying [zmk-west-commands](https://github.com/cormoran/zmk-west-commands), adding test code template and coding agent supports.
@@ -16,35 +18,34 @@ For more info on modules, you can read through through the [Zephyr modules page]
 
 1. Add dependency to your config/west.yml.
 
-    ```yml
-    manifest:
-        remotes:
-            ...
-            - name: cormoran
-            url-base: https://github.com/cormoran
-        projects:
-            ...
-            - name: zmk-module-template
-            remote: cormoran
-            revision: main # or latest commit hash
-            # import: true # if this module has other dependencies
-            ...
-    ```
+   ```yml
+   manifest:
+       remotes:
+           ...
+           - name: cormoran
+           url-base: https://github.com/cormoran
+       projects:
+           ...
+           - name: zmk-module-template
+           remote: cormoran
+           revision: main # or latest commit hash
+           # import: true # if this module has other dependencies
+           ...
+   ```
 
 2. Enable flag in your config/<shield>.conf
 
-    ```conf
-    CONFIG_YOUR_MODULE_NAME=y
-    ```
+   ```conf
+   CONFIG_YOUR_MODULE_NAME=y
+   ```
 
 3. Update your <keyboard>.keymap like .....
 
-    ```
-    / {
-        ...
-    }
-    ```
-
+   ```
+   / {
+       ...
+   }
+   ```
 
 ## Module Development Guide
 
@@ -52,8 +53,9 @@ For more info on modules, you can read through through the [Zephyr modules page]
 
 #### Option1: west workspace directory layout
 
-Set west topdir as parent of repository root and download dependencies under ../.
+Set west topdir as parent of repository root and download dependencies under `../`.
 This layout is useful to reduce disk usage by sharing dependencies with other zephyr modules.
+The build result is located in `../build`.
 
 ```bash
 mkdir west-workspace
@@ -67,9 +69,10 @@ west zephyr-export
 
 #### Option2: isolated directory layout
 
-Set west topdir as repository root and download dependencies under ./dependencies.
+Set west topdir as repository root and download dependencies under `./dependencies`.
 This layout is useful if you don't want to share dependencies to other zephyr modules.
 Dev container and github actions uses this layout.
+The build result is located in `./build`.
 
 ```bash
 git clone <this repository>

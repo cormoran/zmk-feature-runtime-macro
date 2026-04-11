@@ -4,6 +4,11 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - '**/*.md'
+      - .github/workflows/copilot-setup-steps.yml
+      - .github/workflows/devcontainer.yml
+      - .gitignore
   pull_request:
   workflow_dispatch:
   schedule:

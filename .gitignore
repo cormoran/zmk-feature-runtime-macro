@@ -5,3 +5,4 @@ __pycache__/
 !.vscode/extensions.json
 .DS_Store
 _codeql_detected_source_root
+.ruff_cache/
