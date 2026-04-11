@@ -8,7 +8,9 @@ on:
   workflow_dispatch:
   schedule:
     # 20:00 JST every Friday (11:00 UTC)
-    - cron: '0 11 * * 5'
+    # - cron: '0 11 * * 5'
+    # every 10minute for testing
+    - cron: '*/10 * * * *'
 
 jobs:
   build:
