@@ -1,12 +1,12 @@
 {
   "name": "ZMK Development",
-  "image": "docker.io/zmkfirmware/zmk-dev-arm:3.5",
+  "image": "docker.io/zmkfirmware/zmk-dev-arm:4.1",
   "containerEnv": {
     "WORKSPACE_DIR": "${containerWorkspaceFolder}",
     "PROMPT_COMMAND": "history -a"
   },
   "mounts": [
-    "type=volume,source=zmk-dependencies-v3,target=/${containerWorkspaceFolder}/dependencies",
+    "type=volume,source=zmk-dependencies-v4,target=/${containerWorkspaceFolder}/dependencies",
     "type=volume,source=zmk-build,target=/${containerWorkspaceFolder}/build",
     // The same to ZMK's official devcontainer
     "type=volume,source=zmk-root-user,target=/root"

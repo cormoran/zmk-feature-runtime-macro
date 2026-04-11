@@ -13,6 +13,9 @@ jobs:
   copilot-setup-steps:
     runs-on: ubuntu-latest
 
+    env:
+      ZEPHYR_SDK_VERSION: 0.17.0
+
     # Set the permissions to the lowest permissions possible needed for your steps.
     # Copilot will be given its own token for its operations.
     permissions:
@@ -43,18 +46,18 @@ jobs:
         id: cache-zephyr
         uses: actions/cache@v4
         with:
-            path: /home/runner/zephyr-sdk-0.16.3
-            key: zephyr-sdk-0-16-3-arm-zephyr-eabi
+            path: /home/runner/zephyr-sdk-${{ env.ZEPHYR_SDK_VERSION }}
+            key: zephyr-sdk-${{ env.ZEPHYR_SDK_VERSION }}-arm-zephyr-eabi
       - name: Download Zephyr SDK
         if: ${{ steps.cache-zephyr.outputs.cache-hit != 'true' }}
         run: |
             cd ~
-            wget https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v0.16.3/zephyr-sdk-0.16.3_linux-x86_64.tar.xz
-            wget -O - https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v0.16.3/sha256.sum | shasum --check --ignore-missing
-            tar xvf zephyr-sdk-0.16.3_linux-x86_64.tar.xz
+            wget https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v${{ env.ZEPHYR_SDK_VERSION }}/zephyr-sdk-${{ env.ZEPHYR_SDK_VERSION }}_linux-x86_64.tar.xz
+            wget -O - https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v${{ env.ZEPHYR_SDK_VERSION }}/sha256.sum | shasum --check --ignore-missing
+            tar xvf zephyr-sdk-${{ env.ZEPHYR_SDK_VERSION }}_linux-x86_64.tar.xz
       - name: Install Zephyr SDK components
         run: |
-            cd ~/zephyr-sdk-0.16.3
+            cd ~/zephyr-sdk-${{ env.ZEPHYR_SDK_VERSION }}
             ./setup.sh -h -c -t arm-zephyr-eabi
       - name: Cache west modules
         uses: actions/cache@v4
