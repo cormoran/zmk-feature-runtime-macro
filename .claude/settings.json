@@ -5,7 +5,6 @@
   "permissions": {
     "deny": ["Bash(*git* push* main*)"]
   },
-  // sandbox for devcontainer
   "sandbox": {
     "enabled": true,
     "filesystem": {

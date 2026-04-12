@@ -9,6 +9,7 @@ on:
       - .github/workflows/copilot-setup-steps.yml
       - .github/workflows/devcontainer.yml
       - .gitignore
+      - .claude/**
   pull_request:
   workflow_dispatch:
   schedule:
