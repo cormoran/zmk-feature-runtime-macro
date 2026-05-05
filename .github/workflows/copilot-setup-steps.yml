@@ -7,14 +7,12 @@ on:
   push:
     paths:
       - .github/workflows/copilot-setup-steps.yml
+      - .github/actions/zmk-env/**
 
 jobs:
   # The job MUST be called `copilot-setup-steps` or it will not be picked up by Copilot.
   copilot-setup-steps:
     runs-on: ubuntu-latest
-
-    env:
-      ZEPHYR_SDK_VERSION: 0.17.0
 
     # Set the permissions to the lowest permissions possible needed for your steps.
     # Copilot will be given its own token for its operations.
@@ -27,55 +25,4 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
-      - name: Install packages
-        run: |
-            sudo apt update
-            sudo apt install -y --no-install-recommends git cmake ninja-build gperf \
-                ccache dfu-util device-tree-compiler wget \
-                python3-dev python3-pip python3-setuptools python3-tk python3-wheel xz-utils file \
-                make gcc gcc-multilib g++-multilib libsdl2-dev libmagic1
-            cmake --version
-            python3 --version
-            dtc --version
-      - name: Install West and pre-commit
-        run: |
-            pip3 install --user -U west pyelftools grpcio-tools pre-commit
-            echo 'export PATH=~/.local/bin:"$PATH"' >> ~/.bashrc
-            source ~/.bashrc
-      - name: Cache Zephyr SDK
-        id: cache-zephyr
-        uses: actions/cache@v4
-        with:
-            path: /home/runner/zephyr-sdk-${{ env.ZEPHYR_SDK_VERSION }}
-            key: zephyr-sdk-${{ env.ZEPHYR_SDK_VERSION }}-arm-zephyr-eabi
-      - name: Download Zephyr SDK
-        if: ${{ steps.cache-zephyr.outputs.cache-hit != 'true' }}
-        run: |
-            cd ~
-            wget https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v${{ env.ZEPHYR_SDK_VERSION }}/zephyr-sdk-${{ env.ZEPHYR_SDK_VERSION }}_linux-x86_64.tar.xz
-            wget -O - https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v${{ env.ZEPHYR_SDK_VERSION }}/sha256.sum | shasum --check --ignore-missing
-            tar xvf zephyr-sdk-${{ env.ZEPHYR_SDK_VERSION }}_linux-x86_64.tar.xz
-      - name: Install Zephyr SDK components
-        run: |
-            cd ~/zephyr-sdk-${{ env.ZEPHYR_SDK_VERSION }}
-            ./setup.sh -h -c -t arm-zephyr-eabi
-      - name: Cache west modules
-        uses: actions/cache@v4
-        continue-on-error: true
-        env:
-          cache_name: cache-west-modules
-        with:
-          path: dependencies/
-          key: ${{ runner.os }}-build-${{ env.cache_name }}-${{hashFiles('west/**/west*.yml') }}
-          restore-keys: |
-            ${{ runner.os }}-build-${{ env.cache_name }}-
-      - name: Setup ZMK environment
-        run: |
-            west init -l west --mf west-test-isolated.yml
-            west update --narrow
-            west zephyr-export
-      - name: Verify setup
-        run: |
-            west zmk-build tests/zmk-config -n
-      - name: Install pre-commit hooks
-        run: pre-commit install
+      - uses: ./.github/actions/zmk-env

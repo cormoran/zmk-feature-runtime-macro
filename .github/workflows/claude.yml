@@ -9,15 +9,22 @@ on:
     types: [opened, assigned]
   pull_request_review:
     types: [submitted]
+  push:
+    paths:
+      - .github/workflows/claude.yml
+      - .github/actions/west-init/**
 
 jobs:
   claude:
     if: |
+      (github.event_name == 'push') ||
       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
       (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
       (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
       (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
     runs-on: ubuntu-latest
+    container:
+      image: zmkfirmware/zmk-build-arm:stable
     permissions:
       contents: write
       pull-requests: write
@@ -29,8 +36,10 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 1
-
+      - uses: ./.github/actions/west-init
       - name: Run Claude Code
+        # Skip for push event. Push event handling is just for verifying CI works
+        if: github.event_name != 'push'
         id: claude
         uses: anthropics/claude-code-action@v1
         with:

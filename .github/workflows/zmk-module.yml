@@ -5,16 +5,19 @@ on:
     branches:
       - main
     paths-ignore:
-      - '**/*.md'
+      - "**/*.md"
       - .github/workflows/copilot-setup-steps.yml
       - .github/workflows/devcontainer.yml
+      - .github/workflows/claude.yml
+      - .github/workflows/codex.yml
+      - .github/actions/zmk-env/**
       - .gitignore
       - .claude/**
   pull_request:
   workflow_dispatch:
   schedule:
     # 20:00 JST every Friday (11:00 UTC)
-    - cron: '0 11 * * 5'
+    - cron: "0 11 * * 5"
 
 jobs:
   build:
@@ -26,22 +29,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Cache west modules
-        uses: actions/cache@v4
-        continue-on-error: true
-        env:
-          cache_name: cache-west-modules
-        with:
-          path: dependencies/
-          key: ${{ runner.os }}-build-${{ env.cache_name }}-${{hashFiles('west/**/west*.yml') }}
-          restore-keys: |
-            ${{ runner.os }}-build-${{ env.cache_name }}-
-      - name: Init
-        run: |
-          git config --global --add safe.directory ${{ github.workspace }}
-          west init -l west --mf west-test-isolated.yml
-          west update --narrow
-          west zephyr-export
+      - uses: ./.github/actions/west-init
       - name: Test
         run: python3 -m unittest -v
       - name: Upload Build Artifacts

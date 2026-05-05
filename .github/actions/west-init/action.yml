@@ -1,0 +1,28 @@
+name: "Setup zmk build env"
+description: "Setup zephyr sdk and initialize west workspace"
+inputs:
+  manifest-file:
+    description: "Path to the manifest file"
+    default: "west-test-isolated.yml"
+runs:
+  using: "composite"
+  steps:
+    - name: Cache west modules
+      uses: actions/cache@v4
+      continue-on-error: true
+      env:
+        cache_name: cache-west-modules
+      with:
+        path: dependencies/
+        key: ${{ runner.os }}-build-${{ env.cache_name }}-${{hashFiles('west/**/west*.yml') }}
+        restore-keys: |
+          ${{ runner.os }}-build-${{ env.cache_name }}-
+    - name: Init
+      run: |
+        git config --global --add safe.directory ${{ github.workspace }}
+        west init -l west --mf "${{ env.WEST_MANIFEST_FILE }}"
+        west update --narrow
+        west zephyr-export
+      env:
+        WEST_MANIFEST_FILE: ${{ inputs.manifest-file }}
+      shell: bash

@@ -107,3 +107,11 @@ west zmk-build tests/zmk-config
 # Run unit test directly
 west zmk-test tests -m .
 ```
+
+### Coding agent on actions
+
+Actions for github copilot, claude (experimental) and codex (not useful yet) are available.
+
+- Mention `@copilot`
+- Setup `OPENAI_API_KEY` secret and mention `@codex`
+- Setup `ANTHROPIC_API_KEY` secret and mention `@claude`
