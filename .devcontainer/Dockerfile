@@ -22,7 +22,7 @@ RUN ARCH=$(dpkg --print-architecture) && \
     rm "git-delta_${GIT_DELTA_VERSION}_${ARCH}.deb"
 
 # I'm living in Japan!
-ENV TZ="Japan/Tokyo"
+ENV TZ="Asia/Tokyo"
 ENV DEVCONTAINER=true
 
 RUN git config --global --add safe.directory /workspace

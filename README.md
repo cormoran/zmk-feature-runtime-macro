@@ -52,6 +52,10 @@ For more info on modules, you can read through through the [Zephyr modules page]
 
 ### Setup for running test
 
+#### Option0: Dev container (recommended)
+
+Open this repository in VS Code with the [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers). The container automatically initializes the west workspace using the isolated layout.
+
 #### Option1: west workspace directory layout
 
 Set west topdir as parent of repository root and download dependencies under `../`.

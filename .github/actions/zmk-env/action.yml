@@ -1,8 +1,8 @@
 name: "Setup zmk build env"
 description: "Setup zephyr sdk and initialize west workspace"
 inputs:
-  zephr-sdk-version:
-    description: "zephr sdk version to setup"
+  zephyr-sdk-version:
+    description: "zephyr sdk version to setup"
     default: "0.17.0"
 runs:
   using: "composite"
@@ -30,21 +30,21 @@ runs:
       id: cache-zephyr
       uses: actions/cache@v4
       with:
-        path: /home/runner/zephyr-sdk-${{ inputs.zephr-sdk-version }}
-        key: zephyr-sdk-${{ inputs.zephr-sdk-version }}-arm-zephyr-eabi
+        path: /home/runner/zephyr-sdk-${{ inputs.zephyr-sdk-version }}
+        key: zephyr-sdk-${{ inputs.zephyr-sdk-version }}-arm-zephyr-eabi
 
     - name: Download Zephyr SDK
       if: ${{ steps.cache-zephyr.outputs.cache-hit != 'true' }}
       run: |
         cd ~
-        wget https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v${{ inputs.zephr-sdk-version }}/zephyr-sdk-${{ inputs.zephr-sdk-version }}_linux-x86_64.tar.xz
-        wget -O - https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v${{ inputs.zephr-sdk-version }}/sha256.sum | shasum --check --ignore-missing
-        tar xvf zephyr-sdk-${{ inputs.zephr-sdk-version }}_linux-x86_64.tar.xz
+        wget https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v${{ inputs.zephyr-sdk-version }}/zephyr-sdk-${{ inputs.zephyr-sdk-version }}_linux-x86_64.tar.xz
+        wget -O - https://github.com/zephyrproject-rtos/sdk-ng/releases/download/v${{ inputs.zephyr-sdk-version }}/sha256.sum | shasum --check --ignore-missing
+        tar xvf zephyr-sdk-${{ inputs.zephyr-sdk-version }}_linux-x86_64.tar.xz
       shell: bash
 
     - name: Install Zephyr SDK components
       run: |
-        cd ~/zephyr-sdk-${{ inputs.zephr-sdk-version }}
+        cd ~/zephyr-sdk-${{ inputs.zephyr-sdk-version }}
         ./setup.sh -h -c -t arm-zephyr-eabi
       shell: bash
 
