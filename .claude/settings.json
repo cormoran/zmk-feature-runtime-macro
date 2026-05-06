@@ -19,23 +19,23 @@
   },
   "hooks": {
     "PreToolUse": [
-        {
-            "hooks": [
-                {
-                    "type": "command",
-                    "command": "python3 .claude/hooks/restrict_gh.py"
-                }
-            ]
-        }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/restrict_gh.py\""
+          }
+        ]
+      }
     ],
     "Stop": [
       {
         "hooks": [
-            {
-                "type": "command",
-                "command": "pre-commit run -a",
-                "timeout": 120
-            }
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && pre-commit run -a",
+            "timeout": 240
+          }
         ]
       }
     ]
