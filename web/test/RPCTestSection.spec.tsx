@@ -55,7 +55,7 @@ describe("RPCTestSection Component", () => {
       );
 
       expect(
-        screen.getByText(/Subsystem "zmk__template" not found/i)
+        screen.getByText(/Subsystem "your_name__template" not found/i)
       ).toBeInTheDocument();
       expect(
         screen.getByText(

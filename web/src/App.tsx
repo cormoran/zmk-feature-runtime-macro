@@ -6,9 +6,9 @@ import {
   ZMKCustomSubsystem,
   ZMKAppContext,
 } from "@cormoran/zmk-studio-react-hook";
-import { Request, Response } from "./proto/zmk/template/template";
+import { Request, Response } from "./proto/your-name/template/template";
 
-export const SUBSYSTEM_IDENTIFIER = "zmk__template";
+export const SUBSYSTEM_IDENTIFIER = "your_name__template";
 
 function App() {
   return (

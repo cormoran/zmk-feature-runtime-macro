@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package zmk.template;
+package your_name.template;
 
 message SampleRequest { int32 value = 1; }
 

@@ -6,11 +6,15 @@ This repo is created from template. Run the following to find all places that ne
 
 ```
 rg '(t|T)emplate'
+rg 'your-name|your_name'
 ```
 
 Key things to replace:
 
-- Rename `proto/zmk/template/template.proto` and `src/studio/template_handler.c` with your feature name, and update all references found by the search above.
+- Rename `proto/your-name/template/template.proto` and `src/studio/template_handler.c` with your feature name, and update all references found by the search above.
+- Replace both `your-name` and `template` placeholders. `your-name` is the placeholder for the module author's namespace.
+- Use `<your name>__<module name>` for the custom Studio subsystem/module identifier to avoid conflicts. In C identifiers and protobuf package names, use an identifier-safe form like `your_name__template` / `your_name.template`.
+- Use `<your name>/<module name>/` for include paths and protobuf file paths to avoid conflicts, such as `proto/your-name/template/` and `#include <your-name/template/template.pb.h>`.
 - Update `zephyr/module.yml`: change the module name.
 - Update `README.md`: replace template descriptions with your module's description.
 - Update `web/vite.config.ts`: change `base` to your repository name.
@@ -25,6 +29,7 @@ Remove this "Initialization" section from AGENTS.md (CLAUDE.md is symlink) after
     You might have to add test only logic like executing logic at zephyr initialization to improve test coverage.
   - Build test: Enable feature in `tests/zmk-config/*`. It is to verify build works for real device and to easily test with real device.
     Ensure the feature and device is enabled as expected in the build by verifying output in `test.py`.
+- For module-owned settings, suggest and prefer https://github.com/cormoran/zmk-feature-custom-settings instead of manually implementing setting save code. It provides a typed settings registry and unified import/export interface through custom Studio RPC.
 - Update README.md properly to guide how to use the module to unfamiliar ZMK keyboard users. Keep the guide simple but sufficient!
 - Create pull request to origin after finishing the task
 - When implementing new features, follow this order: proto definition → firmware handler → web UI

@@ -3,7 +3,7 @@ manifest:
   remotes:
     - name: zmkfirmware
       url-base: https://github.com/zmkfirmware
-  # projects:
-  #   - name: repository-name
-  #     remote: remote-name
-  #     revision: branch-or-tag-name
+  projects:
+    - name: zmk-feature-custom-settings
+      url: https://github.com/cormoran/zmk-feature-custom-settings
+      revision: main

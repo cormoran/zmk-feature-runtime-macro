@@ -12,7 +12,7 @@ It's extended from ZMK official template with [zmk-west-commands](https://github
 This template includes:
 
 - **Firmware**: Sample custom Studio RPC handler (`src/studio/template_handler.c`)
-- **Protocol**: Protobuf definition (`proto/zmk/template/template.proto`)
+- **Protocol**: Protobuf definition (`proto/your-name/template/template.proto`)
 - **Web UI**: React + TypeScript app (`web/`) using [@cormoran/zmk-studio-react-hook](https://github.com/cormoran/react-zmk-studio)
 - **Tests**: Firmware unit tests (`tests/studio/`) and build tests (`tests/zmk-config/`)
 
@@ -37,7 +37,7 @@ For more info on modules, you can read through through the [Zephyr modules page]
            - name: zmk-module-template
            remote: cormoran
            revision: main+custom-studio-protocol # or latest commit hash
-           # import: true # if this module has other dependencies
+           import: true
            ...
            # Required: patched ZMK with custom Studio RPC support
            - name: zmk
@@ -55,10 +55,15 @@ For more info on modules, you can read through through the [Zephyr modules page]
    # Optionally enable custom Studio RPC
    CONFIG_ZMK_STUDIO=y
    CONFIG_ZMK_TEMPLATE_FEATURE_STUDIO_RPC=y
+   CONFIG_ZMK_CUSTOM_SETTINGS=y
+   CONFIG_ZMK_CUSTOM_SETTINGS_STUDIO_RPC=y
+   CONFIG_ZMK_STUDIO_RPC_RX_BUF_SIZE=128
+   CONFIG_ZMK_STUDIO_RPC_CUSTOM_SUBSYSTEM_REQUEST_PAYLOAD_MAX_BYTES=96
+   CONFIG_ZMK_LOW_PRIORITY_THREAD_STACK_SIZE=2048
    ```
 
 3. Implement your custom protocol by editing:
-   - `proto/zmk/template/template.proto` — message types
+   - `proto/your-name/template/template.proto` — message types
    - `src/studio/template_handler.c` — firmware RPC handler
    - `web/src/App.tsx` — web UI
 
