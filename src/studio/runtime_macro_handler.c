@@ -502,6 +502,42 @@ static int handle_delete_macro(const cormoran_runtime_macro_DeleteMacroRequest *
     return 0;
 }
 
+static int handle_save_macros(cormoran_runtime_macro_Response *resp) {
+    uint32_t affected_count = 0;
+    int ret =
+        zmk_custom_settings_save_scope(ZMK_RUNTIME_MACRO_SUBSYSTEM_ID, NULL, NULL, &affected_count);
+    if (ret < 0) {
+        return ret;
+    }
+
+    cormoran_runtime_macro_StatusResponse result = cormoran_runtime_macro_StatusResponse_init_zero;
+    result.affected_count = affected_count;
+    snprintf(result.message, sizeof(result.message), "Runtime macro settings saved");
+
+    resp->which_response_type = cormoran_runtime_macro_Response_status_tag;
+    resp->response_type.status = result;
+
+    return 0;
+}
+
+static int handle_discard_macros(cormoran_runtime_macro_Response *resp) {
+    uint32_t affected_count = 0;
+    int ret = zmk_custom_settings_discard_scope(ZMK_RUNTIME_MACRO_SUBSYSTEM_ID, NULL, NULL,
+                                                &affected_count);
+    if (ret < 0) {
+        return ret;
+    }
+
+    cormoran_runtime_macro_StatusResponse result = cormoran_runtime_macro_StatusResponse_init_zero;
+    result.affected_count = affected_count;
+    snprintf(result.message, sizeof(result.message), "Runtime macro settings discarded");
+
+    resp->which_response_type = cormoran_runtime_macro_Response_status_tag;
+    resp->response_type.status = result;
+
+    return 0;
+}
+
 static bool runtime_macro_rpc_handle_request(const zmk_custom_CallRequest *raw_request,
                                              pb_callback_t *encode_response) {
     cormoran_runtime_macro_Response *resp =
@@ -543,6 +579,12 @@ static bool runtime_macro_rpc_handle_request(const zmk_custom_CallRequest *raw_r
         break;
     case cormoran_runtime_macro_Request_delete_macro_tag:
         ret = handle_delete_macro(&req.request_type.delete_macro, resp);
+        break;
+    case cormoran_runtime_macro_Request_save_macros_tag:
+        ret = handle_save_macros(resp);
+        break;
+    case cormoran_runtime_macro_Request_discard_macros_tag:
+        ret = handle_discard_macros(resp);
         break;
     default:
         ret = -ENOTSUP;

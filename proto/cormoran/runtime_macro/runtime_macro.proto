@@ -67,6 +67,10 @@ message DeleteMacroRequest {
     bool persist = 2;
 }
 
+message SaveMacrosRequest {}
+
+message DiscardMacrosRequest {}
+
 message Request {
     oneof request_type {
         ListMacrosRequest list_macros = 1;
@@ -77,6 +81,8 @@ message Request {
         SetTapMsRequest set_tap_ms = 6;
         SetMacroStepRequest set_macro_step = 7;
         DeleteMacroRequest delete_macro = 8;
+        SaveMacrosRequest save_macros = 9;
+        DiscardMacrosRequest discard_macros = 10;
     }
 }
 

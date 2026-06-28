@@ -73,7 +73,7 @@ Include the behavior definition and bind a macro slot in your keymap.
 };
 ```
 
-Open the Web UI from ZMK Studio custom subsystem list, connect over serial, select a macro slot, edit steps, then use **Write Memory** for a temporary update or **Save** for persistent storage. The RPC protocol sends names, step count, each step, and delete operations with separate write requests to keep every request body small.
+Open the Web UI from ZMK Studio custom subsystem list, connect over serial, select a macro slot, edit steps, then use **Write Memory** for a temporary update or **Save** for persistent storage. Memory updates become pending custom setting changes; use **Save Pending** to persist all pending runtime macro changes, or **Discard Pending** to restore the saved values. The RPC protocol sends names, step count, each step, and delete operations with separate write requests to keep every request body small.
 
 The runtime macro RPC also exposes `MacroGlobalSettings`, currently containing `tap_ms`. The get request returns the whole global settings message so future global settings can be added together; writes are per key, such as `set_tap_ms`.
 

@@ -177,6 +177,7 @@ textarea {
 }
 
 .actions {
+  flex-wrap: wrap;
   justify-content: flex-end;
   margin-top: 14px;
 }
