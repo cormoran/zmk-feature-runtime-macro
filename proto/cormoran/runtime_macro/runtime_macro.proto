@@ -101,7 +101,10 @@ message ListMacrosResponse {
 
 message GetMacroResponse { MacroSlot macro = 1; }
 
-message MacroGlobalSettings { uint32 tap_ms = 1; }
+message MacroGlobalSettings {
+    uint32 tap_ms = 1;
+    uint32 max_macro = 2;
+}
 
 message GetMacroGlobalSettingsResponse { MacroGlobalSettings settings = 1; }
 

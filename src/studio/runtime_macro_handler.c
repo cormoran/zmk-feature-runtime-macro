@@ -282,6 +282,7 @@ static int handle_get_macro_global_settings(cormoran_runtime_macro_Response *res
     if (ret < 0) {
         return ret;
     }
+    result.settings.max_macro = CONFIG_ZMK_RUNTIME_MACRO_COUNT;
 
     resp->which_response_type = cormoran_runtime_macro_Response_get_macro_global_settings_tag;
     resp->response_type.get_macro_global_settings = result;
