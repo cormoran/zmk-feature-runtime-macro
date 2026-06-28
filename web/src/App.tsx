@@ -355,6 +355,34 @@ export function RuntimeMacroEditor() {
     }
   };
 
+  const applyPendingMacros = async (action: "save" | "discard") => {
+    setIsLoading(true);
+    setMessage(null);
+
+    try {
+      const response = await callRPC(
+        Request.create(
+          action === "save" ? { saveMacros: {} } : { discardMacros: {} }
+        )
+      );
+      await refreshList();
+      setMessage(
+        response.status?.message ??
+          (action === "save"
+            ? "Saved pending macro changes"
+            : "Discarded pending macro changes")
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : `Failed to ${action} pending macro changes`
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const importJson = () => {
     if (!loadedMacro) return;
     try {
@@ -481,6 +509,20 @@ export function RuntimeMacroEditor() {
                 disabled={isLoading}
               >
                 Save
+              </button>
+              <button
+                className="btn"
+                onClick={() => applyPendingMacros("save")}
+                disabled={isLoading}
+              >
+                Save Pending
+              </button>
+              <button
+                className="btn"
+                onClick={() => applyPendingMacros("discard")}
+                disabled={isLoading}
+              >
+                Discard Pending
               </button>
               <button
                 className="btn danger"
