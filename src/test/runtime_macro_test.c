@@ -64,4 +64,4 @@ static int runtime_macro_test_init(void) {
     return 0;
 }
 
-SYS_INIT(runtime_macro_test_init, APPLICATION, CONFIG_APPLICATION_INIT_PRIORITY);
+SYS_INIT(runtime_macro_test_init, APPLICATION, 99);
