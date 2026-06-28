@@ -24,6 +24,7 @@
 
 #include <dt-bindings/zmk/keys.h>
 #include <behaviors.dtsi>
+#include <behaviors/runtime_macro.dtsi>
 #include <dt-bindings/zmk/kscan_mock.h>
 
 / {
@@ -32,7 +33,7 @@
 
 		default_layer {
 			bindings = <
-			&kp A
+			&rmacro 0
 			&kp A
 			&kp A
 			&kp A

@@ -1,5 +1,0 @@
-# Nanopb options file for template.proto
-# This defines max sizes for string fields
-
-your_name.template.SampleResponse.value    max_size:64
-your_name.template.ErrorResponse.message   max_size:64

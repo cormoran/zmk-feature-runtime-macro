@@ -1,157 +1,110 @@
-# cormoran's ZMK Module Template for ZMK (with Custom Studio RPC)
+# ZMK Runtime Macro
 
 ![ZMK Version](https://img.shields.io/badge/ZMK-master-blue)
-[![Test](https://github.com/cormoran/zmk-module-template/actions/workflows/zmk-module.yml/badge.svg?branch=main)](https://github.com/cormoran/zmk-module-template/actions/workflows/zmk-module.yml) [![Devcontainer](https://github.com/cormoran/zmk-module-template/actions/workflows/devcontainer.yml/badge.svg?branch=main)](https://github.com/cormoran/zmk-module-template/actions/workflows/devcontainer.yml)
 
-This repository contains a template for a ZMK module with Web UI using the **unofficial** custom ZMK Studio RPC protocol.
+Runtime Macro is a ZMK module that lets you edit small macros at runtime through the unofficial custom ZMK Studio RPC protocol.
 
-It's extended from ZMK official template with [zmk-west-commands](https://github.com/cormoran/zmk-west-commands), test code template, coding agent support, and custom Studio RPC protocol support.
+Macros are stored by number and invoked from keymaps with:
 
-## Summary
+```dts
+&rmacro 0
+```
 
-This template includes:
+Each macro has a display name for the Web UI and a compact binary body. The body supports:
 
-- **Firmware**: Sample custom Studio RPC handler (`src/studio/template_handler.c`)
-- **Protocol**: Protobuf definition (`proto/your-name/template/template.proto`)
-- **Web UI**: React + TypeScript app (`web/`) using [@cormoran/zmk-studio-react-hook](https://github.com/cormoran/react-zmk-studio)
-- **Tests**: Firmware unit tests (`tests/studio/`) and build tests (`tests/zmk-config/`)
+- behavior down
+- behavior up
+- behavior tap using the global `tap_ms` setting
+- delay in milliseconds
 
-Read through the [ZMK Module Creation](https://zmk.dev/docs/development/module-creation) page for details on how to configure this template.
+The macro body stores behavior local IDs and two behavior params. Names are stored separately from bodies using [zmk-feature-custom-settings](https://github.com/cormoran/zmk-feature-custom-settings): `names[]` is an array string setting and `macros[]` is an array bytes setting under subsystem `cormoran__runtime_macro`.
 
-## More Info
+Tap duration is a scalar custom setting, `tap_ms`, in the same subsystem. If one step needs a different duration, encode it as down, delay, then up.
 
-For more info on modules, you can read through through the [Zephyr modules page](https://docs.zephyrproject.org/3.5.0/develop/modules.html) and [ZMK's page on using modules](https://zmk.dev/docs/features/modules). [Zephyr's west manifest page](https://docs.zephyrproject.org/3.5.0/develop/west/manifest.html#west-manifests) may also be of use.
+## User Guide
 
-## Module User Guide
+Add the module to `config/west.yml`.
 
-1. Add dependency to your `config/west.yml`. Note: this module requires a patched ZMK with custom Studio RPC support.
+```yml
+manifest:
+  remotes:
+    - name: cormoran
+      url-base: https://github.com/cormoran
+  projects:
+    - name: zmk-feature-runtime-macro
+      remote: cormoran
+      revision: main
+      import: true
+    - name: zmk
+      remote: cormoran
+      revision: main+custom-studio-protocol
+      import:
+        file: app/west.yml
+```
 
-   ```yml
-   manifest:
-       remotes:
-           ...
-           - name: cormoran
-           url-base: https://github.com/cormoran
-       projects:
-           ...
-           - name: zmk-module-template
-           remote: cormoran
-           revision: main+custom-studio-protocol # or latest commit hash
-           import: true
-           ...
-           # Required: patched ZMK with custom Studio RPC support
-           - name: zmk
-           remote: cormoran
-           revision: main+custom-studio-protocol
-           import:
-               file: app/west.yml
-   ```
+Enable the module and Studio RPC in `config/<shield>.conf`.
 
-2. Enable flags in your `config/<shield>.conf`
+```conf
+CONFIG_ZMK_RUNTIME_MACRO=y
+CONFIG_ZMK_BEHAVIOR_LOCAL_ID_TYPE_CRC16=y
+CONFIG_ZMK_STUDIO=y
+CONFIG_ZMK_RUNTIME_MACRO_STUDIO_RPC=y
+CONFIG_ZMK_STUDIO_RPC_RX_BUF_SIZE=192
+CONFIG_ZMK_STUDIO_RPC_CUSTOM_SUBSYSTEM_REQUEST_PAYLOAD_MAX_BYTES=192
+CONFIG_ZMK_LOW_PRIORITY_THREAD_STACK_SIZE=2048
+```
 
-   ```conf
-   CONFIG_ZMK_TEMPLATE_FEATURE=y
+Include the behavior definition and bind a macro slot in your keymap.
 
-   # Optionally enable custom Studio RPC
-   CONFIG_ZMK_STUDIO=y
-   CONFIG_ZMK_TEMPLATE_FEATURE_STUDIO_RPC=y
-   CONFIG_ZMK_CUSTOM_SETTINGS=y
-   CONFIG_ZMK_CUSTOM_SETTINGS_STUDIO_RPC=y
-   CONFIG_ZMK_STUDIO_RPC_RX_BUF_SIZE=128
-   CONFIG_ZMK_LOW_PRIORITY_THREAD_STACK_SIZE=2048
-   ```
+```dts
+#include <behaviors.dtsi>
+#include <behaviors/runtime_macro.dtsi>
 
-3. Implement your custom protocol by editing:
-   - `proto/your-name/template/template.proto` — message types
-   - `src/studio/template_handler.c` — firmware RPC handler
-   - `web/src/App.tsx` — web UI
+/ {
+    keymap {
+        compatible = "zmk,keymap";
 
-### Web UI
+        default_layer {
+            bindings = <
+                &rmacro 0
+            >;
+        };
+    };
+};
+```
 
-See [web/README.md](./web/README.md) for web UI development instructions.
+Open the Web UI from ZMK Studio custom subsystem list, connect over serial, select a macro slot, edit steps, then use **Write Memory** for a temporary update or **Save** for persistent storage. The RPC protocol sends names, step count, each step, and delete operations with separate write requests to keep every request body small.
 
-### Publishing Web UI
+The runtime macro RPC also exposes `MacroGlobalSettings`, currently containing `tap_ms`. The get request returns the whole global settings message so future global settings can be added together; writes are per key, such as `set_tap_ms`.
 
-**GitHub Pages**: Visit `Actions > Test and Build Web UI > Run workflow` to deploy to `https://<account>.github.io/<repo>/`.
+## Binary Format
 
-**Cloudflare Workers (PR previews)**: Configure `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets.
+Each stored macro body is a byte array:
 
-## Module Development Guide
+```text
+version: u8 = 1
+steps...
+```
 
-### Setup for running test
+Step fields use unsigned base-128 varints.
 
-#### Option0: Dev container (recommended)
+```text
+down:  opcode=1, behavior_id, param1, param2
+up:    opcode=2, behavior_id, param1, param2
+tap:   opcode=3, behavior_id, param1, param2
+delay: opcode=4, delay_ms
+```
 
-Open this repository in VS Code with the [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers). The container automatically initializes the west workspace using the isolated layout.
+The default custom-settings value size is 64 bytes, so the UI reports the encoded byte size before saving.
 
-#### Option1: west workspace directory layout
-
-Set west topdir as parent of repository root and download dependencies under `../`.
-This layout is useful to reduce disk usage by sharing dependencies with other zephyr modules.
-The build result is located in `../build`.
+## Development
 
 ```bash
-mkdir west-workspace
-cd west-workspace # this directory becomes west workspace root (topdir)
-git clone <this repository>
-# rm -r .west # if exists to reset workspace
-west init -l . --mf west/west-test-workspace.yml
-west update --narrow
-west zephyr-export
-```
-
-#### Option2: isolated directory layout
-
-Set west topdir as repository root and download dependencies under `./dependencies`.
-This layout is useful if you don't want to share dependencies to other zephyr modules.
-Dev container and github actions uses this layout.
-The build result is located in `./build`.
-
-```bash
-git clone <this repository>
-cd <cloned directory>
-west init -l west --mf west-test-isolated.yml
-west update --narrow
-west zephyr-export
-```
-
-### Pre-commit
-
-Every commit need to pass pre-commit verification. The verification contains formatting code and running tests.
-
-```
-pip install pre-commit
-pre-commit install
-
-# Run pre-commit manually
-pre-commit run --all-files
-# Run for git staged files
 pre-commit run
-```
-
-### Running Test
-
-```bash
-# Run unit test + build test and verify the results
 python3 -m unittest
-# Run build test directly
 west zmk-build tests/zmk-config
-# Run unit test directly
 west zmk-test tests -m .
-# Run web tests
 cd web && npm test
 ```
 
-### Sync changes from template
-
-Run `Actions > Sync Changes in Template > Run workflow` to get the latest template changes as a pull request.
-
-If the template contains changes in `.github/workflows/*`, register a GitHub personal access token as `GH_TOKEN` repository secret (`repo` + `workflow` scopes).
-
-### Coding agent on actions
-
-Actions for github copilot and claude are available.
-
-- Mention `@copilot`
-- Setup `ANTHROPIC_API_KEY` secret and mention `@claude`
-  - Or fix [claude.yml](./github/workflows/claude.yml) to use `CLAUDE_CODE_OAUTH_TOKEN`
+The Web UI can import and export the macro step subset from the Keyboard Abyss keybindings schema. Runtime behavior bindings are represented as valid `raw` bindings using `local-id:<behavior_id> <param1> <param2>`.

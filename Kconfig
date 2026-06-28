@@ -1,10 +1,31 @@
-config ZMK_TEMPLATE_FEATURE
-    bool "Enable template feature"
+config ZMK_RUNTIME_MACRO
+    bool "Enable runtime macro feature"
+    select ZMK_CUSTOM_SETTINGS
+    select ZMK_BEHAVIOR_LOCAL_IDS
 
-if ZMK_TEMPLATE_FEATURE
+if ZMK_RUNTIME_MACRO
 
-config ZMK_TEMPLATE_FEATURE_STUDIO_RPC
-    bool "Enable template feature custom Studio RPC"
+config ZMK_RUNTIME_MACRO_STUDIO_RPC
+    bool "Enable runtime macro custom Studio RPC"
     depends on ZMK_STUDIO
+    select ZMK_CUSTOM_SETTINGS_STUDIO_RPC
+
+config ZMK_RUNTIME_MACRO_COUNT
+    int "Maximum runtime macro slots"
+    default 8
+    range 1 16
+
+config ZMK_RUNTIME_MACRO_QUEUE_SIZE
+    int "Maximum queued runtime macro actions"
+    default 64
+    range 1 128
+
+config ZMK_RUNTIME_MACRO_DEFAULT_TAP_MS
+    int "Default tap duration for runtime macro taps"
+    default 30
+    range 0 10000
+
+config ZMK_RUNTIME_MACRO_TEST
+    bool "Enable runtime macro test setup"
 
 endif

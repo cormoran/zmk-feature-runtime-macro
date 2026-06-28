@@ -1,10 +1,16 @@
 zephyr_include_directories(include)
-if(CONFIG_ZMK_TEMPLATE_FEATURE)
-    # target_sources(app PRIVATE ...)
+if(CONFIG_ZMK_RUNTIME_MACRO)
+    target_sources(app PRIVATE
+        src/runtime_macro.c
+        src/behaviors/behavior_runtime_macro.c
+    )
 
-    if(CONFIG_ZMK_TEMPLATE_FEATURE_STUDIO_RPC)
-        file(GLOB_RECURSE C_FILES ${CMAKE_CURRENT_SOURCE_DIR}/src/*.c)
-        target_sources(app PRIVATE ${C_FILES})
+    if(CONFIG_ZMK_RUNTIME_MACRO_TEST)
+        target_sources(app PRIVATE src/test/runtime_macro_test.c)
+    endif()
+
+    if(CONFIG_ZMK_RUNTIME_MACRO_STUDIO_RPC)
+        target_sources(app PRIVATE src/studio/runtime_macro_handler.c)
 
         list(APPEND CMAKE_MODULE_PATH ${ZEPHYR_BASE}/modules/nanopb)
         include(nanopb)

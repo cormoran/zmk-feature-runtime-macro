@@ -3,6 +3,6 @@ import react from "@vitejs/plugin-react";
 
 // https://vite.dev/config/
 export default defineConfig({
-  base: process.env.VITE_BASE ?? "/repo-name/",
+  base: process.env.VITE_BASE ?? "/zmk-feature-runtime-macro/",
   plugins: [react()],
 });

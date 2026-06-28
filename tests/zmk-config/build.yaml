@@ -1,21 +1,21 @@
 include:
-  - artifact: module_template_board_feature_disabled
+  - artifact: runtime_macro_board_feature_disabled
     board: xiao_ble//zmk
     shield: tester_xiao
 
-  - artifact: module_template_board_with_rpc
+  - artifact: runtime_macro_board_with_rpc
     board: xiao_ble//zmk
     shield: tester_xiao
-    cmake-args: -DCONFIG_ZMK_STUDIO=y -DCONFIG_ZMK_TEMPLATE_FEATURE=y -DCONFIG_ZMK_TEMPLATE_FEATURE_STUDIO_RPC=y
+    cmake-args: -DCONFIG_ZMK_STUDIO=y -DCONFIG_ZMK_STUDIO_LOCKING=n -DCONFIG_ZMK_RUNTIME_MACRO=y -DCONFIG_ZMK_RUNTIME_MACRO_STUDIO_RPC=y -DCONFIG_ZMK_BEHAVIOR_LOCAL_ID_TYPE_CRC16=y -DCONFIG_ZMK_STUDIO_RPC_RX_BUF_SIZE=192
     snippet: studio-rpc-usb-uart
 
-  - artifact: module_template_board_without_rpc
+  - artifact: runtime_macro_board_without_rpc
     board: xiao_ble//zmk
     shield: tester_xiao
-    cmake-args: -DCONFIG_ZMK_TEMPLATE_FEATURE=y
+    cmake-args: -DCONFIG_ZMK_RUNTIME_MACRO=y -DCONFIG_ZMK_RUNTIME_MACRO_TEST=y -DCONFIG_ZMK_BEHAVIOR_LOCAL_ID_TYPE_CRC16=y
 
   - artifact: custom_settings_board
     board: xiao_ble//zmk
     shield: tester_xiao
-    cmake-args: -DCONFIG_ZMK_STUDIO=y -DCONFIG_ZMK_TEMPLATE_FEATURE=y -DCONFIG_ZMK_TEMPLATE_FEATURE_STUDIO_RPC=y -DCONFIG_ZMK_CUSTOM_SETTINGS=y -DCONFIG_ZMK_CUSTOM_SETTINGS_STUDIO_RPC=y
+    cmake-args: -DCONFIG_ZMK_STUDIO=y -DCONFIG_ZMK_STUDIO_LOCKING=n -DCONFIG_ZMK_RUNTIME_MACRO=y -DCONFIG_ZMK_RUNTIME_MACRO_STUDIO_RPC=y -DCONFIG_ZMK_CUSTOM_SETTINGS=y -DCONFIG_ZMK_CUSTOM_SETTINGS_STUDIO_RPC=y -DCONFIG_ZMK_BEHAVIOR_LOCAL_ID_TYPE_CRC16=y -DCONFIG_ZMK_STUDIO_RPC_RX_BUF_SIZE=192
     snippet: studio-rpc-usb-uart

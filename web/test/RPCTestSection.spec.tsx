@@ -3,11 +3,11 @@ import {
   createConnectedMockZMKApp,
   ZMKAppProvider,
 } from "@cormoran/zmk-studio-react-hook/testing";
-import { RPCTestSection, SUBSYSTEM_IDENTIFIER } from "../src/App";
+import { RuntimeMacroEditor, SUBSYSTEM_IDENTIFIER } from "../src/App";
 
-describe("RPCTestSection Component", () => {
+describe("RuntimeMacroEditor Component", () => {
   describe("With Subsystem", () => {
-    it("should render RPC controls when subsystem is found", () => {
+    it("should render macro editor when subsystem is found", () => {
       const mockZMKApp = createConnectedMockZMKApp({
         deviceName: "Test Device",
         subsystems: [SUBSYSTEM_IDENTIFIER],
@@ -15,29 +15,14 @@ describe("RPCTestSection Component", () => {
 
       render(
         <ZMKAppProvider value={mockZMKApp}>
-          <RPCTestSection />
+          <RuntimeMacroEditor />
         </ZMKAppProvider>
       );
 
-      expect(screen.getByText(/RPC Test/i)).toBeInTheDocument();
-      expect(screen.getByText(/Send a sample request/i)).toBeInTheDocument();
-      expect(screen.getByLabelText(/Value:/i)).toBeInTheDocument();
-      expect(screen.getByText(/Send Request/i)).toBeInTheDocument();
-    });
-
-    it("should show default input value", () => {
-      const mockZMKApp = createConnectedMockZMKApp({
-        subsystems: [SUBSYSTEM_IDENTIFIER],
-      });
-
-      render(
-        <ZMKAppProvider value={mockZMKApp}>
-          <RPCTestSection />
-        </ZMKAppProvider>
-      );
-
-      const input = screen.getByLabelText(/Value:/i) as HTMLInputElement;
-      expect(input.value).toBe("42");
+      expect(
+        screen.getByRole("heading", { name: "Macros" })
+      ).toBeInTheDocument();
+      expect(screen.getByText(/Refresh/i)).toBeInTheDocument();
     });
   });
 
@@ -50,24 +35,22 @@ describe("RPCTestSection Component", () => {
 
       render(
         <ZMKAppProvider value={mockZMKApp}>
-          <RPCTestSection />
+          <RuntimeMacroEditor />
         </ZMKAppProvider>
       );
 
       expect(
-        screen.getByText(/Subsystem "your_name__template" not found/i)
+        screen.getByText(/Subsystem "cormoran__runtime_macro" was not found/i)
       ).toBeInTheDocument();
       expect(
-        screen.getByText(
-          /Make sure your firmware includes the template module/i
-        )
+        screen.getByText(/runtime macro RPC enabled/i)
       ).toBeInTheDocument();
     });
   });
 
   describe("Without ZMKAppContext", () => {
     it("should not render when ZMKAppContext is not provided", () => {
-      const { container } = render(<RPCTestSection />);
+      const { container } = render(<RuntimeMacroEditor />);
 
       expect(container.firstChild).toBeNull();
     });

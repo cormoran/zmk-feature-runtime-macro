@@ -1,0 +1,7 @@
+cormoran.runtime_macro.MacroSummary.name       max_size:64
+cormoran.runtime_macro.MacroSlot.name          max_size:64
+cormoran.runtime_macro.MacroSlot.steps         max_count:32
+cormoran.runtime_macro.SetMacroNameRequest.name max_size:64
+cormoran.runtime_macro.ErrorResponse.message   max_size:96
+cormoran.runtime_macro.StatusResponse.message  max_size:96
+cormoran.runtime_macro.ListMacrosResponse.macros max_count:16

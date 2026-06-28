@@ -1,26 +1,5 @@
 This repository contains a ZMK module with Web UI using the **unofficial** custom ZMK Studio RPC protocol.
 
-## Initialization (first time only)
-
-This repo is created from template. Run the following to find all places that need to be replaced:
-
-```
-rg '(t|T)emplate'
-rg 'your-name|your_name'
-```
-
-Key things to replace:
-
-- Rename `proto/your-name/template/template.proto` and `src/studio/template_handler.c` with your feature name, and update all references found by the search above.
-- Replace both `your-name` and `template` placeholders. `your-name` is the placeholder for the module author's namespace.
-- Use `<your name>__<module name>` for the custom Studio subsystem/module identifier to avoid conflicts. In C identifiers and protobuf package names, use an identifier-safe form like `your_name__template` / `your_name.template`.
-- Use `<your name>/<module name>/` for include paths and protobuf file paths to avoid conflicts, such as `proto/your-name/template/` and `#include <your-name/template/template.pb.h>`.
-- Update `zephyr/module.yml`: change the module name.
-- Update `README.md`: replace template descriptions with your module's description.
-- Update `web/vite.config.ts`: change `base` to your repository name.
-
-Remove this "Initialization" section from AGENTS.md (CLAUDE.md is symlink) after completing all items.
-
 ## Dev Rules
 
 - Commit changes at each milestone. Ensure pre-commit works and never bypass pre-commit check.
