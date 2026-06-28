@@ -13,6 +13,7 @@
 #include <zephyr/sys/util.h>
 #include <zmk/studio/custom.h>
 #include <cormoran/runtime_macro/runtime_macro.pb.h>
+#include <cormoran/zmk/custom_settings.h>
 #include <cormoran/zmk/runtime_macro.h>
 
 #include <zephyr/logging/log.h>
@@ -255,6 +256,63 @@ static int handle_list_macros(cormoran_runtime_macro_Response *resp) {
     return 0;
 }
 
+static int read_tap_ms(uint32_t *tap_ms) {
+    struct zmk_custom_setting_value value;
+    int ret = zmk_custom_setting_read_by_key(ZMK_RUNTIME_MACRO_SUBSYSTEM_ID,
+                                             ZMK_RUNTIME_MACRO_TAP_MS_KEY, &value);
+    if (ret < 0) {
+        return ret;
+    }
+    if (value.type != ZMK_CUSTOM_SETTING_VALUE_TYPE_INT32 || value.int32_value < 0) {
+        return -EINVAL;
+    }
+
+    *tap_ms = MIN(value.int32_value, 10000);
+    return 0;
+}
+
+static int handle_get_macro_global_settings(cormoran_runtime_macro_Response *resp) {
+    cormoran_runtime_macro_GetMacroGlobalSettingsResponse result =
+        cormoran_runtime_macro_GetMacroGlobalSettingsResponse_init_zero;
+
+    result.has_settings = true;
+    int ret = read_tap_ms(&result.settings.tap_ms);
+    if (ret < 0) {
+        return ret;
+    }
+
+    resp->which_response_type = cormoran_runtime_macro_Response_get_macro_global_settings_tag;
+    resp->response_type.get_macro_global_settings = result;
+
+    return 0;
+}
+
+static int handle_set_tap_ms(const cormoran_runtime_macro_SetTapMsRequest *req,
+                             cormoran_runtime_macro_Response *resp) {
+    if (req->tap_ms > 10000) {
+        return -ERANGE;
+    }
+
+    struct zmk_custom_setting_value value = ZMK_CUSTOM_SETTING_VALUE_INT32(req->tap_ms);
+    enum zmk_custom_setting_write_mode mode =
+        req->persist ? ZMK_CUSTOM_SETTING_WRITE_MODE_PERSIST : ZMK_CUSTOM_SETTING_WRITE_MODE_MEMORY;
+
+    int ret = zmk_custom_setting_write_by_key(ZMK_RUNTIME_MACRO_SUBSYSTEM_ID,
+                                              ZMK_RUNTIME_MACRO_TAP_MS_KEY, &value, mode);
+    if (ret < 0) {
+        return ret;
+    }
+
+    cormoran_runtime_macro_StatusResponse result = cormoran_runtime_macro_StatusResponse_init_zero;
+    result.affected_count = 1;
+    snprintf(result.message, sizeof(result.message), "Runtime macro tap_ms updated");
+
+    resp->which_response_type = cormoran_runtime_macro_Response_status_tag;
+    resp->response_type.status = result;
+
+    return 0;
+}
+
 static int fill_macro_slot(uint32_t index, cormoran_runtime_macro_MacroSlot *slot) {
     size_t encoded_size = 0;
     uint8_t encoded[CONFIG_ZMK_CUSTOM_SETTINGS_VALUE_MAX_SIZE];
@@ -382,6 +440,12 @@ static bool runtime_macro_rpc_handle_request(const zmk_custom_CallRequest *raw_r
         break;
     case cormoran_runtime_macro_Request_set_macro_steps_tag:
         ret = handle_set_macro_steps(&req.request_type.set_macro_steps, resp);
+        break;
+    case cormoran_runtime_macro_Request_get_macro_global_settings_tag:
+        ret = handle_get_macro_global_settings(resp);
+        break;
+    case cormoran_runtime_macro_Request_set_tap_ms_tag:
+        ret = handle_set_tap_ms(&req.request_type.set_tap_ms, resp);
         break;
     default:
         ret = -ENOTSUP;

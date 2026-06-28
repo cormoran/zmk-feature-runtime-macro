@@ -6,6 +6,8 @@ message ListMacrosRequest {}
 
 message GetMacroRequest { uint32 index = 1; }
 
+message GetMacroGlobalSettingsRequest {}
+
 message MacroSummary {
     uint32 index = 1;
     string name = 2;
@@ -48,12 +50,19 @@ message SetMacroStepsRequest {
     bool persist = 3;
 }
 
+message SetTapMsRequest {
+    uint32 tap_ms = 1;
+    bool persist = 2;
+}
+
 message Request {
     oneof request_type {
         ListMacrosRequest list_macros = 1;
         GetMacroRequest get_macro = 2;
         SetMacroNameRequest set_macro_name = 3;
         SetMacroStepsRequest set_macro_steps = 4;
+        GetMacroGlobalSettingsRequest get_macro_global_settings = 5;
+        SetTapMsRequest set_tap_ms = 6;
     }
 }
 
@@ -72,11 +81,16 @@ message ListMacrosResponse {
 
 message GetMacroResponse { MacroSlot macro = 1; }
 
+message MacroGlobalSettings { uint32 tap_ms = 1; }
+
+message GetMacroGlobalSettingsResponse { MacroGlobalSettings settings = 1; }
+
 message Response {
     oneof response_type {
         ErrorResponse error = 1;
         StatusResponse status = 2;
         ListMacrosResponse list_macros = 3;
         GetMacroResponse get_macro = 4;
+        GetMacroGlobalSettingsResponse get_macro_global_settings = 5;
     }
 }

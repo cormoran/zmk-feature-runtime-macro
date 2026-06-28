@@ -89,6 +89,16 @@
   margin-bottom: 14px;
 }
 
+.global-settings {
+  display: grid;
+  grid-template-columns: minmax(120px, 180px) auto auto;
+  gap: 8px;
+  align-items: end;
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
 label {
   display: grid;
   gap: 4px;
@@ -203,6 +213,10 @@ textarea {
   }
 
   .step-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .global-settings {
     grid-template-columns: 1fr 1fr;
   }
 

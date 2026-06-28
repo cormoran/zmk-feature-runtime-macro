@@ -115,6 +115,7 @@ export function RuntimeMacroEditor() {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [loadedMacro, setLoadedMacro] = useState<LoadedMacro | null>(null);
   const [maxMacroBytes, setMaxMacroBytes] = useState(64);
+  const [tapMs, setTapMs] = useState(30);
   const [jsonText, setJsonText] = useState("[]");
   const [message, setMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -178,6 +179,10 @@ export function RuntimeMacroEditor() {
         }))
       );
       setMaxMacroBytes(response.listMacros?.maxMacroBytes || 64);
+      const globalSettings = await callRPC(
+        Request.create({ getMacroGlobalSettings: {} })
+      );
+      setTapMs(globalSettings.getMacroGlobalSettings?.settings?.tapMs ?? 30);
       if (list.length > 0) {
         await loadMacro(list[Math.min(selectedIndex, list.length - 1)].index);
       }
@@ -282,6 +287,33 @@ export function RuntimeMacroEditor() {
     }
   };
 
+  const saveTapMs = async (persist: boolean) => {
+    setIsLoading(true);
+    setMessage(null);
+
+    try {
+      await callRPC(
+        Request.create({
+          setTapMs: {
+            tapMs,
+            persist,
+          },
+        })
+      );
+      setMessage(
+        persist
+          ? "Saved tap_ms to persistent settings"
+          : "Updated tap_ms in memory"
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Failed to save tap_ms"
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const importJson = () => {
     if (!loadedMacro) return;
     try {
@@ -331,6 +363,35 @@ export function RuntimeMacroEditor() {
       <section className="editor">
         {loadedMacro ? (
           <>
+            <div className="global-settings">
+              <label>
+                Tap ms
+                <input
+                  type="number"
+                  min={0}
+                  max={10000}
+                  value={tapMs}
+                  onChange={(event) =>
+                    setTapMs(numericValue(event.target.value))
+                  }
+                />
+              </label>
+              <button
+                className="btn"
+                onClick={() => saveTapMs(false)}
+                disabled={isLoading}
+              >
+                Write Memory
+              </button>
+              <button
+                className="btn"
+                onClick={() => saveTapMs(true)}
+                disabled={isLoading}
+              >
+                Save
+              </button>
+            </div>
+
             <div className="editor-head">
               <label>
                 Name

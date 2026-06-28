@@ -115,7 +115,7 @@ class WestCommandsTests(unittest.TestCase):
         for artifact in artifacts_and_expected_build_params.keys():
             shutil.rmtree(self.BUILD_DIR / artifact, ignore_errors=True)
 
-        result = run_west(["zmk-build", "tests/zmk-config", "-q"])
+        result = run_west(["zmk-build", "tests/zmk-config", "-q", "-P", "1"])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
         for artifact, entries in artifacts_and_expected_build_params.items():
