@@ -15,6 +15,32 @@
 
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
+#if IS_ENABLED(CONFIG_ZMK_BEHAVIOR_METADATA)
+
+static const struct behavior_parameter_value_metadata param_values[] = {
+    {
+        .display_name = "Macro",
+        .type = BEHAVIOR_PARAMETER_VALUE_TYPE_RANGE,
+        .range =
+            {
+                .min = 0,
+                .max = CONFIG_ZMK_RUNTIME_MACRO_COUNT - 1,
+            },
+    },
+};
+
+static const struct behavior_parameter_metadata_set param_metadata_set[] = {{
+    .param1_values = param_values,
+    .param1_values_len = ARRAY_SIZE(param_values),
+}};
+
+static const struct behavior_parameter_metadata metadata = {
+    .sets_len = ARRAY_SIZE(param_metadata_set),
+    .sets = param_metadata_set,
+};
+
+#endif
+
 static int on_runtime_macro_pressed(struct zmk_behavior_binding *binding,
                                     struct zmk_behavior_binding_event event) {
     int ret = zmk_runtime_macro_play(binding->param1, &event);
@@ -36,6 +62,9 @@ static int on_runtime_macro_released(struct zmk_behavior_binding *binding,
 static const struct behavior_driver_api behavior_runtime_macro_driver_api = {
     .binding_pressed = on_runtime_macro_pressed,
     .binding_released = on_runtime_macro_released,
+#if IS_ENABLED(CONFIG_ZMK_BEHAVIOR_METADATA)
+    .parameter_metadata = &metadata,
+#endif // IS_ENABLED(CONFIG_ZMK_BEHAVIOR_METADATA)
 };
 
 #define RUNTIME_MACRO_INST(n)                                                                      \
