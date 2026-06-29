@@ -10,6 +10,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include <zephyr/device.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
 #include <zephyr/sys/util.h>
@@ -18,8 +19,11 @@
 #include <cormoran/zmk/custom_settings.h>
 #include <cormoran/zmk/runtime_macro.h>
 #include <zmk/behavior.h>
+#include <zmk/behavior_queue.h>
 
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
+
+#define RUNTIME_MACRO_WAIT_BEHAVIOR_NAME "runtime_macro_wait"
 
 struct runtime_macro_queue_item {
     bool is_delay;
@@ -29,21 +33,35 @@ struct runtime_macro_queue_item {
     struct zmk_behavior_binding binding;
 };
 
-struct runtime_macro_player {
-    struct k_work_delayable work;
-    struct k_mutex lock;
-    bool active;
-    size_t cursor;
-    size_t count;
-    struct zmk_behavior_binding_event event;
-    struct runtime_macro_queue_item items[CONFIG_ZMK_RUNTIME_MACRO_QUEUE_SIZE];
+static int on_runtime_macro_wait_pressed(struct zmk_behavior_binding *binding,
+                                         struct zmk_behavior_binding_event event) {
+    ARG_UNUSED(binding);
+    ARG_UNUSED(event);
+
+    return ZMK_BEHAVIOR_OPAQUE;
+}
+
+static int on_runtime_macro_wait_released(struct zmk_behavior_binding *binding,
+                                          struct zmk_behavior_binding_event event) {
+    ARG_UNUSED(binding);
+    ARG_UNUSED(event);
+
+    return ZMK_BEHAVIOR_OPAQUE;
+}
+
+static const struct behavior_driver_api runtime_macro_wait_driver_api = {
+    .binding_pressed = on_runtime_macro_wait_pressed,
+    .binding_released = on_runtime_macro_wait_released,
+#if IS_ENABLED(CONFIG_ZMK_BEHAVIOR_METADATA)
+    .get_parameter_metadata = zmk_behavior_get_empty_param_metadata,
+#endif // IS_ENABLED(CONFIG_ZMK_BEHAVIOR_METADATA)
 };
 
-static void runtime_macro_work_handler(struct k_work *work);
+DEVICE_DEFINE(runtime_macro_wait_behavior, RUNTIME_MACRO_WAIT_BEHAVIOR_NAME, NULL, NULL, NULL, NULL,
+              POST_KERNEL, CONFIG_KERNEL_INIT_PRIORITY_DEFAULT, &runtime_macro_wait_driver_api);
 
-static struct runtime_macro_player player = {
-    .work = Z_WORK_DELAYABLE_INITIALIZER(runtime_macro_work_handler),
-    .lock = Z_MUTEX_INITIALIZER(player.lock),
+static const STRUCT_SECTION_ITERABLE(zmk_behavior_ref, runtime_macro_wait_behavior_ref) = {
+    .device = DEVICE_GET(runtime_macro_wait_behavior),
 };
 
 #define DEFINE_RUNTIME_MACRO_NAME_SETTING(i, _)                                                    \
@@ -233,6 +251,64 @@ static uint32_t get_runtime_macro_tap_ms(void) {
     return MIN(value.int32_value, 10000);
 }
 
+static int queue_behavior(const struct zmk_behavior_binding_event *event,
+                          const struct zmk_behavior_binding *binding, bool pressed,
+                          uint32_t wait_ms) {
+    int ret = zmk_behavior_queue_add(event, *binding, pressed, wait_ms);
+    if (ret < 0) {
+        LOG_WRN("Runtime macro behavior queue add failed: %d", ret);
+    }
+
+    return ret;
+}
+
+static int queue_runtime_macro(const struct runtime_macro_queue_item *items, size_t count,
+                               const struct zmk_behavior_binding_event *event) {
+    uint32_t pending_delay_ms = 0;
+    struct zmk_behavior_binding none_binding = {
+        .behavior_dev = RUNTIME_MACRO_WAIT_BEHAVIOR_NAME,
+    };
+
+    for (size_t i = 0; i < count; i++) {
+        const struct runtime_macro_queue_item *item = &items[i];
+
+        if (item->is_delay) {
+            uint32_t delay_ms = item->use_tap_ms ? get_runtime_macro_tap_ms() : item->delay_ms;
+            if (UINT32_MAX - pending_delay_ms < delay_ms) {
+                pending_delay_ms = UINT32_MAX;
+            } else {
+                pending_delay_ms += delay_ms;
+            }
+            continue;
+        }
+
+        if (pending_delay_ms > 0) {
+            int ret = queue_behavior(event, &none_binding, true, pending_delay_ms);
+            if (ret < 0) {
+                return ret;
+            }
+            pending_delay_ms = 0;
+        }
+
+        uint32_t wait_ms = 0;
+        if (i + 1 < count && items[i + 1].is_delay) {
+            wait_ms = items[i + 1].use_tap_ms ? get_runtime_macro_tap_ms() : items[i + 1].delay_ms;
+            i++;
+        }
+
+        int ret = queue_behavior(event, &item->binding, item->pressed, wait_ms);
+        if (ret < 0) {
+            return ret;
+        }
+    }
+
+    if (pending_delay_ms > 0) {
+        return queue_behavior(event, &none_binding, true, pending_delay_ms);
+    }
+
+    return 0;
+}
+
 int zmk_runtime_macro_validate_encoded(const uint8_t *encoded, size_t size) {
     struct runtime_macro_queue_item items[CONFIG_ZMK_RUNTIME_MACRO_QUEUE_SIZE];
     size_t count;
@@ -321,40 +397,6 @@ int zmk_runtime_macro_write(uint32_t index, const char *name, const uint8_t *enc
         ZMK_RUNTIME_MACRO_SUBSYSTEM_ID, ZMK_RUNTIME_MACRO_BODIES_KEY, index, &body_value, mode);
 }
 
-static void runtime_macro_work_handler(struct k_work *work) {
-    ARG_UNUSED(work);
-
-    while (true) {
-        k_mutex_lock(&player.lock, K_FOREVER);
-
-        if (player.cursor >= player.count) {
-            player.active = false;
-            k_mutex_unlock(&player.lock);
-            return;
-        }
-
-        struct runtime_macro_queue_item item = player.items[player.cursor++];
-        struct zmk_behavior_binding_event event = player.event;
-        event.timestamp = k_uptime_get();
-
-        if (item.is_delay) {
-            if (item.use_tap_ms) {
-                item.delay_ms = get_runtime_macro_tap_ms();
-            }
-            k_mutex_unlock(&player.lock);
-            k_work_schedule(&player.work, K_MSEC(item.delay_ms));
-            return;
-        }
-
-        k_mutex_unlock(&player.lock);
-
-        int ret = zmk_behavior_invoke_binding(&item.binding, event, item.pressed);
-        if (ret < 0) {
-            LOG_WRN("Runtime macro behavior invocation failed: %d", ret);
-        }
-    }
-}
-
 int zmk_runtime_macro_play(uint32_t index, const struct zmk_behavior_binding_event *event) {
     if (index >= CONFIG_ZMK_RUNTIME_MACRO_COUNT) {
         return -ERANGE;
@@ -375,20 +417,5 @@ int zmk_runtime_macro_play(uint32_t index, const struct zmk_behavior_binding_eve
         return ret;
     }
 
-    k_mutex_lock(&player.lock, K_FOREVER);
-    if (player.active) {
-        k_mutex_unlock(&player.lock);
-        return -EBUSY;
-    }
-
-    memcpy(player.items, items, sizeof(items[0]) * count);
-    player.count = count;
-    player.cursor = 0;
-    player.event = *event;
-    player.active = true;
-    k_mutex_unlock(&player.lock);
-
-    k_work_schedule(&player.work, K_NO_WAIT);
-
-    return 0;
+    return queue_runtime_macro(items, count, event);
 }
