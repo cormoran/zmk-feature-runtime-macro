@@ -322,22 +322,22 @@ int zmk_runtime_macro_read(uint32_t index, char *name, size_t name_capacity, uin
         return -ERANGE;
     }
 
-    struct zmk_custom_setting_value name_value;
-    int ret = zmk_custom_setting_read_array_by_key(ZMK_RUNTIME_MACRO_SUBSYSTEM_ID,
-                                                   ZMK_RUNTIME_MACRO_NAMES_KEY, index, &name_value);
-    if (ret < 0) {
-        return ret;
-    }
-
     if (name && name_capacity > 0) {
+        struct zmk_custom_setting_value name_value;
+        int ret = zmk_custom_setting_read_array_by_key(
+            ZMK_RUNTIME_MACRO_SUBSYSTEM_ID, ZMK_RUNTIME_MACRO_NAMES_KEY, index, &name_value);
+        if (ret < 0) {
+            return ret;
+        }
+
         size_t copy_size = MIN(name_value.size, name_capacity - 1);
         memcpy(name, name_value.string_value, copy_size);
         name[copy_size] = '\0';
     }
 
     struct zmk_custom_setting_value body_value;
-    ret = zmk_custom_setting_read_array_by_key(ZMK_RUNTIME_MACRO_SUBSYSTEM_ID,
-                                               ZMK_RUNTIME_MACRO_BODIES_KEY, index, &body_value);
+    int ret = zmk_custom_setting_read_array_by_key(
+        ZMK_RUNTIME_MACRO_SUBSYSTEM_ID, ZMK_RUNTIME_MACRO_BODIES_KEY, index, &body_value);
     if (ret < 0) {
         return ret;
     }
