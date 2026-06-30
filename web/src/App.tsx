@@ -11,6 +11,7 @@ import {
   Response,
 } from "./proto/cormoran/runtime_macro/runtime_macro";
 import {
+  compactKeyTapSteps,
   encodeRuntimeMacro,
   fromKeyboardAbyssSteps,
   toKeyboardAbyssSteps,
@@ -43,6 +44,9 @@ function runtimeStepToRpc(step: RuntimeMacroStep): RpcMacroStep {
   if (step.action === "delay") {
     return { delay: { delayMs: step.delayMs } };
   }
+  if (step.action === "keySequence") {
+    return { keyTapSequence: { packedKeys: Uint8Array.from(step.packedKeys) } };
+  }
 
   const binding = {
     behaviorId: step.behaviorId,
@@ -60,6 +64,12 @@ function runtimeStepFromRpc(step: RpcMacroStep): RuntimeMacroStep {
   if (step.up) return { action: "up", ...step.up };
   if (step.tap) return { action: "tap", ...step.tap };
   if (step.delay) return { action: "delay", delayMs: step.delay.delayMs };
+  if (step.keyTapSequence) {
+    return {
+      action: "keySequence",
+      packedKeys: [...step.keyTapSequence.packedKeys],
+    };
+  }
 
   throw new Error("Macro step is missing oneof data");
 }
@@ -116,6 +126,9 @@ export function RuntimeMacroEditor() {
   const [loadedMacro, setLoadedMacro] = useState<LoadedMacro | null>(null);
   const [maxMacroBytes, setMaxMacroBytes] = useState(64);
   const [tapMs, setTapMs] = useState(30);
+  const [keyPressBehaviorId, setKeyPressBehaviorId] = useState<
+    number | undefined
+  >(undefined);
   const [jsonText, setJsonText] = useState("[]");
   const [message, setMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -142,7 +155,7 @@ export function RuntimeMacroEditor() {
   );
 
   const loadMacro = useCallback(
-    async (index: number) => {
+    async (index: number, keyPressId = keyPressBehaviorId) => {
       setIsLoading(true);
       setMessage(null);
       try {
@@ -153,7 +166,13 @@ export function RuntimeMacroEditor() {
         const steps = macro.steps.map(runtimeStepFromRpc);
         setSelectedIndex(index);
         setLoadedMacro({ index, name: macro.name, steps });
-        setJsonText(JSON.stringify(toKeyboardAbyssSteps(steps), null, 2));
+        setJsonText(
+          JSON.stringify(
+            toKeyboardAbyssSteps(steps, { keyPressBehaviorId: keyPressId }),
+            null,
+            2
+          )
+        );
       } catch (error) {
         setMessage(
           error instanceof Error ? error.message : "Failed to load macro"
@@ -162,7 +181,7 @@ export function RuntimeMacroEditor() {
         setIsLoading(false);
       }
     },
-    [callRPC]
+    [callRPC, keyPressBehaviorId]
   );
 
   const refreshList = useCallback(async () => {
@@ -182,9 +201,15 @@ export function RuntimeMacroEditor() {
       const globalSettings = await callRPC(
         Request.create({ getMacroGlobalSettings: {} })
       );
-      setTapMs(globalSettings.getMacroGlobalSettings?.settings?.tapMs ?? 30);
+      const settings = globalSettings.getMacroGlobalSettings?.settings;
+      const nextKeyPressBehaviorId = settings?.keyPressBehaviorId || undefined;
+      setTapMs(settings?.tapMs ?? 30);
+      setKeyPressBehaviorId(nextKeyPressBehaviorId);
       if (list.length > 0) {
-        await loadMacro(list[Math.min(selectedIndex, list.length - 1)].index);
+        await loadMacro(
+          list[Math.min(selectedIndex, list.length - 1)].index,
+          nextKeyPressBehaviorId
+        );
       }
     } catch (error) {
       setMessage(
@@ -228,7 +253,13 @@ export function RuntimeMacroEditor() {
     if (!loadedMacro) return;
     const steps = loadedMacro.steps.filter((_, index) => index !== stepIndex);
     setLoadedMacro({ ...loadedMacro, steps });
-    setJsonText(JSON.stringify(toKeyboardAbyssSteps(steps), null, 2));
+    setJsonText(
+      JSON.stringify(
+        toKeyboardAbyssSteps(steps, { keyPressBehaviorId }),
+        null,
+        2
+      )
+    );
   };
 
   const addStep = () => {
@@ -245,7 +276,9 @@ export function RuntimeMacroEditor() {
     setMessage(null);
 
     try {
-      const encodedMacro = encodeRuntimeMacro(loadedMacro.steps);
+      const codecOptions = { keyPressBehaviorId };
+      const rpcSteps = compactKeyTapSteps(loadedMacro.steps, codecOptions);
+      const encodedMacro = encodeRuntimeMacro(rpcSteps, codecOptions);
       if (encodedMacro.length > maxMacroBytes) {
         throw new Error(
           `Encoded macro is ${encodedMacro.length} bytes; limit is ${maxMacroBytes}`
@@ -265,12 +298,12 @@ export function RuntimeMacroEditor() {
         Request.create({
           setMacroStepCount: {
             index: loadedMacro.index,
-            stepCount: loadedMacro.steps.length,
+            stepCount: rpcSteps.length,
             persist,
           },
         })
       );
-      for (const [stepIndex, step] of loadedMacro.steps.entries()) {
+      for (const [stepIndex, step] of rpcSteps.entries()) {
         await callRPC(
           Request.create({
             setMacroStep: {
@@ -284,7 +317,7 @@ export function RuntimeMacroEditor() {
       }
 
       setJsonText(
-        JSON.stringify(toKeyboardAbyssSteps(loadedMacro.steps), null, 2)
+        JSON.stringify(toKeyboardAbyssSteps(rpcSteps, codecOptions), null, 2)
       );
       setMessage(
         persist ? "Saved to persistent settings" : "Updated in memory"
@@ -386,8 +419,12 @@ export function RuntimeMacroEditor() {
   const importJson = () => {
     if (!loadedMacro) return;
     try {
-      const steps = fromKeyboardAbyssSteps(JSON.parse(jsonText));
-      const encoded = encodeRuntimeMacro(steps);
+      const codecOptions = { keyPressBehaviorId };
+      const steps = compactKeyTapSteps(
+        fromKeyboardAbyssSteps(JSON.parse(jsonText)),
+        codecOptions
+      );
+      const encoded = encodeRuntimeMacro(steps, codecOptions);
       if (encoded.length > maxMacroBytes) {
         throw new Error(
           `Imported macro is ${encoded.length} bytes; limit is ${maxMacroBytes}`
@@ -403,7 +440,7 @@ export function RuntimeMacroEditor() {
   };
 
   const encodedSize = loadedMacro
-    ? encodeRuntimeMacro(loadedMacro.steps).length
+    ? encodeRuntimeMacro(loadedMacro.steps, { keyPressBehaviorId }).length
     : 0;
 
   return (
@@ -568,6 +605,23 @@ function numericValue(value: string) {
   return Number.isFinite(Number(value)) ? Math.max(0, Number(value)) : 0;
 }
 
+function formatPackedKeys(packedKeys: number[]) {
+  return packedKeys
+    .map((value) => value.toString(16).padStart(2, "0"))
+    .join(" ");
+}
+
+function parsePackedKeys(value: string) {
+  if (value.trim() === "") return [];
+  return value
+    .split(/[\s,]+/)
+    .filter(Boolean)
+    .map((part) => {
+      const parsed = Number.parseInt(part.replace(/^0x/i, ""), 16);
+      return Number.isFinite(parsed) ? Math.max(0, Math.min(255, parsed)) : 0;
+    });
+}
+
 function StepEditor({
   step,
   onChange,
@@ -580,6 +634,8 @@ function StepEditor({
   const setAction = (action: RuntimeMacroStep["action"]) => {
     if (action === "delay") {
       onChange({ action: "delay", delayMs: 10 });
+    } else if (action === "keySequence") {
+      onChange({ action: "keySequence", packedKeys: [] });
     } else if (action === "tap") {
       onChange({
         action: "tap",
@@ -599,6 +655,7 @@ function StepEditor({
         onChange={(event) => setAction(event.target.value as never)}
       >
         <option value="tap">Tap</option>
+        <option value="keySequence">Key Seq</option>
         <option value="down">Down</option>
         <option value="up">Up</option>
         <option value="delay">Delay</option>
@@ -615,6 +672,19 @@ function StepEditor({
               onChange({
                 action: "delay",
                 delayMs: numericValue(event.target.value),
+              })
+            }
+          />
+        </label>
+      ) : step.action === "keySequence" ? (
+        <label>
+          Packed keys
+          <input
+            value={formatPackedKeys(step.packedKeys)}
+            onChange={(event) =>
+              onChange({
+                action: "keySequence",
+                packedKeys: parsePackedKeys(event.target.value),
               })
             }
           />

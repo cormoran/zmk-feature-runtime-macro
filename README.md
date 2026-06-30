@@ -16,6 +16,7 @@ Each macro has a display name for the Web UI and a compact binary body. The body
 - behavior up
 - behavior tap using the global `tap_ms` setting
 - delay in milliseconds
+- packed `&kp` tap sequence using the global `tap_ms` setting
 
 The macro body stores behavior local IDs and two behavior params. Names are stored separately from bodies using [zmk-feature-custom-settings](https://github.com/cormoran/zmk-feature-custom-settings): `names[]` is an array string setting and `macros[]` is an array bytes setting under subsystem `cormoran__runtime_macro`.
 
@@ -89,11 +90,14 @@ steps...
 Step fields use unsigned base-128 varints.
 
 ```text
-down:  opcode=1, behavior_id, param1, param2
-up:    opcode=2, behavior_id, param1, param2
-tap:   opcode=3, behavior_id, param1, param2
-delay: opcode=4, delay_ms
+down:         opcode=1, behavior_id, param1, param2
+up:           opcode=2, behavior_id, param1, param2
+tap:          opcode=3, behavior_id, param1, param2
+delay:        opcode=4, delay_ms
+key sequence: opcode=5, byte_length, packed_key_bytes...
 ```
+
+The key sequence opcode is optimized for consecutive `&kp` taps that use HID keyboard usages with no modifier or left shift. Each packed key byte uses bit 7 for left shift and bits 0-6 for the HID keyboard usage ID, so common ASCII-producing taps cost one byte per key plus the opcode and length bytes. During playback each packed key is expanded to a normal `&kp <keycode>` tap using the global `tap_ms` value.
 
 The default custom-settings value size is 64 bytes, so the UI reports the encoded byte size before saving.
 

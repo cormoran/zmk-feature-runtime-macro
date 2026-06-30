@@ -23,8 +23,11 @@ enum zmk_runtime_macro_opcode {
     ZMK_RUNTIME_MACRO_OP_UP = 2,
     ZMK_RUNTIME_MACRO_OP_TAP = 3,
     ZMK_RUNTIME_MACRO_OP_DELAY = 4,
+    ZMK_RUNTIME_MACRO_OP_KEY_TAP_SEQUENCE = 5,
 };
 
+int zmk_runtime_macro_pack_key_tap(uint32_t keycode, uint8_t *packed_key);
+int zmk_runtime_macro_unpack_key_tap(uint8_t packed_key, uint32_t *keycode);
 int zmk_runtime_macro_validate_encoded(const uint8_t *encoded, size_t size);
 int zmk_runtime_macro_play(uint32_t index, const struct zmk_behavior_binding_event *event);
 int zmk_runtime_macro_read(uint32_t index, char *name, size_t name_capacity, uint8_t *encoded,

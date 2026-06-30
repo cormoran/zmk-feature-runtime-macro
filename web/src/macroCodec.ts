@@ -1,14 +1,13 @@
-export type RuntimeMacroAction = "down" | "up" | "tap" | "delay";
+export type RuntimeMacroAction =
+  | "down"
+  | "up"
+  | "tap"
+  | "delay"
+  | "keySequence";
 
 export type RuntimeMacroStep =
   | {
-      action: "down" | "up";
-      behaviorId: number;
-      param1: number;
-      param2: number;
-    }
-  | {
-      action: "tap";
+      action: "down" | "up" | "tap";
       behaviorId: number;
       param1: number;
       param2: number;
@@ -16,16 +15,32 @@ export type RuntimeMacroStep =
   | {
       action: "delay";
       delayMs: number;
+    }
+  | {
+      action: "keySequence";
+      packedKeys: number[];
     };
 
 export const FORMAT_VERSION = 1;
+
+export type RuntimeMacroCodecOptions = {
+  keyPressBehaviorId?: number;
+};
 
 const OPCODES: Record<RuntimeMacroAction, number> = {
   down: 1,
   up: 2,
   tap: 3,
   delay: 4,
+  keySequence: 5,
 };
+
+const HID_USAGE_KEY = 0x07;
+const MOD_LSFT = 0x02;
+const PACKED_LSFT = 0x80;
+const PACKED_USAGE_MASK = 0x7f;
+const PACKED_MIN_USAGE = 0x04;
+const PACKED_MAX_USAGE = 0x38;
 
 function assertUint32(value: number, label: string): number {
   if (!Number.isInteger(value) || value < 0 || value > 0xffffffff) {
@@ -58,21 +73,132 @@ function readUvar(bytes: Uint8Array, offset: { value: number }): number {
   throw new Error("Invalid varuint in encoded macro");
 }
 
-export function encodeRuntimeMacro(steps: RuntimeMacroStep[]): Uint8Array {
-  const bytes = [FORMAT_VERSION];
+function packKeyTap(keycode: number): number | null {
+  const uintKeycode = assertUint32(keycode, "keycode");
+  const mods = uintKeycode >>> 24;
+  if ((mods & ~MOD_LSFT) !== 0) return null;
+
+  const usageKeycode = uintKeycode & ~(0xff << 24);
+  const page = (usageKeycode >>> 16) & 0xff;
+  const usage = usageKeycode & 0xffff;
+  if (
+    page !== HID_USAGE_KEY ||
+    usage < PACKED_MIN_USAGE ||
+    usage > PACKED_MAX_USAGE
+  ) {
+    return null;
+  }
+
+  return usage | (mods === MOD_LSFT ? PACKED_LSFT : 0);
+}
+
+function unpackKeyTap(packedKey: number): number {
+  if (!Number.isInteger(packedKey) || packedKey < 0 || packedKey > 0xff) {
+    throw new Error("packed key must be an unsigned byte");
+  }
+
+  const usage = packedKey & PACKED_USAGE_MASK;
+  if (usage < PACKED_MIN_USAGE || usage > PACKED_MAX_USAGE) {
+    throw new Error(`Unsupported packed key usage: ${usage}`);
+  }
+
+  const keycode = (HID_USAGE_KEY << 16) | usage;
+  return packedKey & PACKED_LSFT ? ((MOD_LSFT << 24) | keycode) >>> 0 : keycode;
+}
+
+function writeKeySequence(bytes: number[], packedKeys: number[]) {
+  bytes.push(OPCODES.keySequence);
+  writeUvar(bytes, packedKeys.length, "packed key count");
+  for (const packedKey of packedKeys) {
+    unpackKeyTap(packedKey);
+    bytes.push(packedKey);
+  }
+}
+
+function readKeySequence(
+  bytes: Uint8Array,
+  offset: { value: number }
+): number[] {
+  const length = readUvar(bytes, offset);
+  if (offset.value + length > bytes.length) {
+    throw new Error("Invalid packed key sequence length in encoded macro");
+  }
+
+  const packedKeys: number[] = [];
+  for (let i = 0; i < length; i++) {
+    const packedKey = bytes[offset.value++];
+    unpackKeyTap(packedKey);
+    packedKeys.push(packedKey);
+  }
+  return packedKeys;
+}
+
+function packedTapKey(
+  step: RuntimeMacroStep,
+  options: RuntimeMacroCodecOptions
+): number | null {
+  if (
+    step.action !== "tap" ||
+    step.param2 !== 0 ||
+    step.behaviorId !== options.keyPressBehaviorId
+  ) {
+    return null;
+  }
+
+  return packKeyTap(step.param1);
+}
+
+export function compactKeyTapSteps(
+  steps: RuntimeMacroStep[],
+  options: RuntimeMacroCodecOptions = {}
+): RuntimeMacroStep[] {
+  const compacted: RuntimeMacroStep[] = [];
+  let packedBuffer: number[] = [];
+
+  const flushPacked = () => {
+    if (packedBuffer.length > 0) {
+      compacted.push({ action: "keySequence", packedKeys: packedBuffer });
+      packedBuffer = [];
+    }
+  };
 
   for (const step of steps) {
+    if (step.action === "keySequence") {
+      for (const packedKey of step.packedKeys) unpackKeyTap(packedKey);
+      packedBuffer.push(...step.packedKeys);
+      continue;
+    }
+
+    const packedKey = packedTapKey(step, options);
+    if (packedKey !== null) {
+      packedBuffer.push(packedKey);
+      continue;
+    }
+
+    flushPacked();
+    compacted.push(step);
+  }
+
+  flushPacked();
+  return compacted;
+}
+
+export function encodeRuntimeMacro(
+  steps: RuntimeMacroStep[],
+  options: RuntimeMacroCodecOptions = {}
+): Uint8Array {
+  const bytes = [FORMAT_VERSION];
+
+  for (const step of compactKeyTapSteps(steps, options)) {
+    if (step.action === "keySequence") {
+      writeKeySequence(bytes, step.packedKeys);
+      continue;
+    }
+
     bytes.push(OPCODES[step.action]);
 
     if (step.action === "delay") {
       writeUvar(bytes, step.delayMs, "delayMs");
-      continue;
-    }
-
-    if (step.action === "tap") {
-      writeUvar(bytes, step.behaviorId, "behaviorId");
-      writeUvar(bytes, step.param1, "param1");
-      writeUvar(bytes, step.param2, "param2");
       continue;
     }
 
@@ -95,6 +221,14 @@ export function decodeRuntimeMacro(encoded: Uint8Array): RuntimeMacroStep[] {
 
   while (offset.value < encoded.length) {
     const opcode = encoded[offset.value++];
+
+    if (opcode === OPCODES.keySequence) {
+      steps.push({
+        action: "keySequence",
+        packedKeys: readKeySequence(encoded, offset),
+      });
+      continue;
+    }
 
     if (opcode === OPCODES.delay) {
       steps.push({ action: "delay", delayMs: readUvar(encoded, offset) });
@@ -134,7 +268,9 @@ type AbyssMacroStep =
       delayTime: number;
     };
 
-function bindingToRawZmk(step: Exclude<RuntimeMacroStep, { action: "delay" }>) {
+function bindingToRawZmk(
+  step: Exclude<RuntimeMacroStep, { action: "delay" | "keySequence" }>
+) {
   return `local-id:${step.behaviorId} ${step.param1} ${step.param2}`;
 }
 
@@ -163,11 +299,25 @@ function parseRawZmkBinding(binding: unknown) {
 }
 
 export function toKeyboardAbyssSteps(
-  steps: RuntimeMacroStep[]
+  steps: RuntimeMacroStep[],
+  options: RuntimeMacroCodecOptions = {}
 ): AbyssMacroStep[] {
-  return steps.map((step) => {
+  return steps.flatMap((step): AbyssMacroStep[] => {
     if (step.action === "delay") {
-      return { action: "delay", delayTime: step.delayMs };
+      return [{ action: "delay", delayTime: step.delayMs }];
+    }
+
+    if (step.action === "keySequence") {
+      return step.packedKeys.map((packedKey) => ({
+        action: "tap",
+        binding: {
+          type: "raw",
+          zmk: `local-id:${options.keyPressBehaviorId ?? 0} ${unpackKeyTap(
+            packedKey
+          )} 0`,
+          label: `Packed key 0x${packedKey.toString(16).padStart(2, "0")}`,
+        },
+      }));
     }
 
     const binding = {
@@ -177,10 +327,10 @@ export function toKeyboardAbyssSteps(
     };
 
     if (step.action === "tap") {
-      return { action: "tap", binding };
+      return [{ action: "tap", binding }];
     }
 
-    return { action: step.action, binding };
+    return [{ action: step.action, binding }];
   });
 }
 

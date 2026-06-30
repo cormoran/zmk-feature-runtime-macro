@@ -10,6 +10,7 @@
 
 #include <pb_decode.h>
 #include <pb_encode.h>
+#include <zephyr/device.h>
 #include <zephyr/sys/util.h>
 #include <zmk/studio/custom.h>
 #include <cormoran/runtime_macro/runtime_macro.pb.h>
@@ -112,6 +113,54 @@ static int append_step_binding(uint8_t *dest, size_t capacity, size_t *offset,
     return append_uvar(dest, capacity, offset, binding->param2);
 }
 
+static int read_key_tap_sequence_step(const uint8_t *encoded, size_t size, size_t *offset,
+                                      cormoran_runtime_macro_KeyTapSequenceStep *sequence) {
+    uint32_t sequence_size;
+    int ret = read_uvar(encoded, size, offset, &sequence_size);
+    if (ret < 0) {
+        return ret;
+    }
+    if (sequence_size > size - *offset || sequence_size > sizeof(sequence->packed_keys.bytes)) {
+        return -EINVAL;
+    }
+
+    for (uint32_t i = 0; i < sequence_size; i++) {
+        uint32_t keycode;
+        ret = zmk_runtime_macro_unpack_key_tap(encoded[*offset + i], &keycode);
+        if (ret < 0) {
+            return ret;
+        }
+    }
+
+    sequence->packed_keys.size = sequence_size;
+    memcpy(sequence->packed_keys.bytes, &encoded[*offset], sequence_size);
+    *offset += sequence_size;
+    return 0;
+}
+
+static int append_key_tap_sequence_step(uint8_t *dest, size_t capacity, size_t *offset,
+                                        const cormoran_runtime_macro_KeyTapSequenceStep *sequence) {
+    int ret = append_uvar(dest, capacity, offset, sequence->packed_keys.size);
+    if (ret < 0) {
+        return ret;
+    }
+
+    if (sequence->packed_keys.size > capacity - *offset) {
+        return -ENOSPC;
+    }
+
+    for (size_t i = 0; i < sequence->packed_keys.size; i++) {
+        uint32_t keycode;
+        ret = zmk_runtime_macro_unpack_key_tap(sequence->packed_keys.bytes[i], &keycode);
+        if (ret < 0) {
+            return ret;
+        }
+        dest[(*offset)++] = sequence->packed_keys.bytes[i];
+    }
+
+    return 0;
+}
+
 static int decode_steps(const uint8_t *encoded, size_t encoded_size,
                         cormoran_runtime_macro_MacroStep *steps, pb_size_t *steps_count,
                         pb_size_t steps_capacity) {
@@ -135,6 +184,7 @@ static int decode_steps(const uint8_t *encoded, size_t encoded_size,
         *step = (cormoran_runtime_macro_MacroStep)cormoran_runtime_macro_MacroStep_init_zero;
 
         uint8_t opcode = encoded[offset++];
+        int ret;
         switch (opcode) {
         case ZMK_RUNTIME_MACRO_OP_DOWN:
             step->which_step = cormoran_runtime_macro_MacroStep_down_tag;
@@ -147,7 +197,15 @@ static int decode_steps(const uint8_t *encoded, size_t encoded_size,
             break;
         case ZMK_RUNTIME_MACRO_OP_DELAY:
             step->which_step = cormoran_runtime_macro_MacroStep_delay_tag;
-            int ret = read_uvar(encoded, encoded_size, &offset, &step->step.delay.delay_ms);
+            ret = read_uvar(encoded, encoded_size, &offset, &step->step.delay.delay_ms);
+            if (ret < 0) {
+                return ret;
+            }
+            continue;
+        case ZMK_RUNTIME_MACRO_OP_KEY_TAP_SEQUENCE:
+            step->which_step = cormoran_runtime_macro_MacroStep_key_tap_sequence_tag;
+            ret = read_key_tap_sequence_step(encoded, encoded_size, &offset,
+                                             &step->step.key_tap_sequence);
             if (ret < 0) {
                 return ret;
             }
@@ -165,7 +223,7 @@ static int decode_steps(const uint8_t *encoded, size_t encoded_size,
             binding = &step->step.tap;
         }
 
-        int ret = read_step_binding(encoded, encoded_size, &offset, binding);
+        ret = read_step_binding(encoded, encoded_size, &offset, binding);
         if (ret < 0) {
             return ret;
         }
@@ -204,6 +262,9 @@ static int encode_steps(const cormoran_runtime_macro_MacroStep *steps, pb_size_t
         case cormoran_runtime_macro_MacroStep_delay_tag:
             opcode = ZMK_RUNTIME_MACRO_OP_DELAY;
             break;
+        case cormoran_runtime_macro_MacroStep_key_tap_sequence_tag:
+            opcode = ZMK_RUNTIME_MACRO_OP_KEY_TAP_SEQUENCE;
+            break;
         default:
             return -EINVAL;
         }
@@ -215,6 +276,12 @@ static int encode_steps(const cormoran_runtime_macro_MacroStep *steps, pb_size_t
 
         if (opcode == ZMK_RUNTIME_MACRO_OP_DELAY) {
             int ret = append_uvar(encoded, encoded_capacity, &offset, step->step.delay.delay_ms);
+            if (ret < 0) {
+                return ret;
+            }
+        } else if (opcode == ZMK_RUNTIME_MACRO_OP_KEY_TAP_SEQUENCE) {
+            int ret = append_key_tap_sequence_step(encoded, encoded_capacity, &offset,
+                                                   &step->step.key_tap_sequence);
             if (ret < 0) {
                 return ret;
             }
@@ -283,6 +350,8 @@ static int handle_get_macro_global_settings(cormoran_runtime_macro_Response *res
         return ret;
     }
     result.settings.max_macro = CONFIG_ZMK_RUNTIME_MACRO_COUNT;
+    result.settings.key_press_behavior_id =
+        zmk_behavior_get_local_id(DEVICE_DT_NAME(DT_NODELABEL(kp)));
 
     resp->which_response_type = cormoran_runtime_macro_Response_get_macro_global_settings_tag;
     resp->response_type.get_macro_global_settings = result;

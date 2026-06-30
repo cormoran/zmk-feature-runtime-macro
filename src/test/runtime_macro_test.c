@@ -4,74 +4,24 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include <errno.h>
 #include <stddef.h>
 #include <stdint.h>
 
-#include <zephyr/device.h>
 #include <zephyr/init.h>
 #include <zephyr/logging/log.h>
-#include <zephyr/sys/util.h>
-
-#include <dt-bindings/zmk/keys.h>
 #include <cormoran/zmk/runtime_macro.h>
-#include <zmk/behavior.h>
 
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
-static int append_uvar(uint8_t *dest, size_t capacity, size_t *offset, uint32_t value) {
-    do {
-        if (*offset >= capacity) {
-            return -ENOSPC;
-        }
-
-        uint8_t byte = value & 0x7f;
-        value >>= 7;
-        if (value != 0) {
-            byte |= 0x80;
-        }
-        dest[(*offset)++] = byte;
-    } while (value != 0);
-
-    return 0;
-}
-
-static int append_binding(uint8_t *dest, size_t capacity, size_t *offset,
-                          zmk_behavior_local_id_t behavior_id, uint32_t param1, uint32_t param2) {
-    int ret = append_uvar(dest, capacity, offset, behavior_id);
-    if (ret < 0) {
-        return ret;
-    }
-    ret = append_uvar(dest, capacity, offset, param1);
-    if (ret < 0) {
-        return ret;
-    }
-    return append_uvar(dest, capacity, offset, param2);
-}
-
 static int runtime_macro_test_init(void) {
-    uint8_t encoded[CONFIG_ZMK_CUSTOM_SETTINGS_VALUE_MAX_SIZE] = {
+    const uint8_t encoded[] = {
         ZMK_RUNTIME_MACRO_FORMAT_VERSION,
-        ZMK_RUNTIME_MACRO_OP_DOWN,
+        ZMK_RUNTIME_MACRO_OP_KEY_TAP_SEQUENCE,
+        1,
+        0x04,
     };
-    size_t size = 2;
-    zmk_behavior_local_id_t kp_id = zmk_behavior_get_local_id(DEVICE_DT_NAME(DT_NODELABEL(kp)));
 
-    int ret = append_binding(encoded, sizeof(encoded), &size, kp_id, A, 0);
-    if (ret < 0) {
-        return ret;
-    }
-
-    if (size >= sizeof(encoded)) {
-        return -ENOSPC;
-    }
-    encoded[size++] = ZMK_RUNTIME_MACRO_OP_UP;
-    ret = append_binding(encoded, sizeof(encoded), &size, kp_id, A, 0);
-    if (ret < 0) {
-        return ret;
-    }
-
-    ret = zmk_runtime_macro_write(0, "Test A", encoded, size, false);
+    int ret = zmk_runtime_macro_write(0, "Test A", encoded, sizeof(encoded), false);
     if (ret < 0) {
         LOG_ERR("Failed to seed runtime macro test data: %d", ret);
         return ret;

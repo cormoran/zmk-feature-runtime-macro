@@ -43,7 +43,9 @@ describe("RuntimeMacroEditor Component", () => {
           });
         } else if (request.getMacroGlobalSettings) {
           response = Response.create({
-            getMacroGlobalSettings: { settings: { tapMs: 30, maxMacro: 8 } },
+            getMacroGlobalSettings: {
+              settings: { tapMs: 30, maxMacro: 8, keyPressBehaviorId: 1 },
+            },
           });
         } else if (request.getMacro) {
           response = Response.create({

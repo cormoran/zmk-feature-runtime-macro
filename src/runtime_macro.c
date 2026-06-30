@@ -16,6 +16,8 @@
 #include <zephyr/sys/util.h>
 
 #include <drivers/behavior.h>
+#include <dt-bindings/zmk/hid_usage_pages.h>
+#include <dt-bindings/zmk/modifiers.h>
 #include <cormoran/zmk/custom_settings.h>
 #include <cormoran/zmk/runtime_macro.h>
 #include <zmk/behavior.h>
@@ -27,6 +29,7 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
 struct runtime_macro_queue_item {
     bool is_delay;
+    bool is_tap;
     bool use_tap_ms;
     bool pressed;
     uint32_t delay_ms;
@@ -114,6 +117,42 @@ ZMK_CUSTOM_SETTING_DEFINE(runtime_macro_tap_ms, ZMK_RUNTIME_MACRO_SUBSYSTEM_ID,
                           ZMK_CUSTOM_SETTING_PERMISSION_UNSECURE,
                           ZMK_CUSTOM_SETTING_PERMISSION_UNSECURE, ZMK_CUSTOM_SETTING_NO_CONSTRAINT);
 
+#define RUNTIME_MACRO_PACKED_KEY_LSFT BIT(7)
+#define RUNTIME_MACRO_PACKED_KEY_USAGE_MASK 0x7f
+#define RUNTIME_MACRO_PACKED_KEY_MIN_USAGE 0x04
+#define RUNTIME_MACRO_PACKED_KEY_MAX_USAGE 0x38
+
+int zmk_runtime_macro_pack_key_tap(uint32_t keycode, uint8_t *packed_key) {
+    uint32_t mods = SELECT_MODS(keycode);
+    if ((mods & ~MOD_LSFT) != 0) {
+        return -EINVAL;
+    }
+
+    uint32_t usage_keycode = STRIP_MODS(keycode);
+    if (ZMK_HID_USAGE_PAGE(usage_keycode) != HID_USAGE_KEY) {
+        return -EINVAL;
+    }
+
+    uint32_t usage = ZMK_HID_USAGE_ID(usage_keycode);
+    if (usage < RUNTIME_MACRO_PACKED_KEY_MIN_USAGE || usage > RUNTIME_MACRO_PACKED_KEY_MAX_USAGE) {
+        return -EINVAL;
+    }
+
+    *packed_key = usage | (mods == MOD_LSFT ? RUNTIME_MACRO_PACKED_KEY_LSFT : 0);
+    return 0;
+}
+
+int zmk_runtime_macro_unpack_key_tap(uint8_t packed_key, uint32_t *keycode) {
+    uint8_t usage = packed_key & RUNTIME_MACRO_PACKED_KEY_USAGE_MASK;
+    if (usage < RUNTIME_MACRO_PACKED_KEY_MIN_USAGE || usage > RUNTIME_MACRO_PACKED_KEY_MAX_USAGE) {
+        return -EINVAL;
+    }
+
+    uint32_t unpacked = ZMK_HID_USAGE(HID_USAGE_KEY, usage);
+    *keycode = (packed_key & RUNTIME_MACRO_PACKED_KEY_LSFT) ? LS((unpacked)) : unpacked;
+    return 0;
+}
+
 static int read_uvar(const uint8_t *encoded, size_t size, size_t *offset, uint32_t *value) {
     uint32_t result = 0;
     uint8_t shift = 0;
@@ -186,6 +225,65 @@ static int append_item(struct runtime_macro_queue_item *items, size_t *count,
     return 0;
 }
 
+static int append_tap_item(struct runtime_macro_queue_item *items, size_t *count,
+                           struct zmk_behavior_binding binding) {
+    return append_item(items, count,
+                       (struct runtime_macro_queue_item){
+                           .is_tap = true,
+                           .binding = binding,
+                       });
+}
+
+static int read_key_tap_sequence(const uint8_t *encoded, size_t size, size_t *offset,
+                                 struct runtime_macro_queue_item *items, size_t *count) {
+    uint32_t sequence_size;
+    int ret = read_uvar(encoded, size, offset, &sequence_size);
+    if (ret < 0) {
+        return ret;
+    }
+    if (sequence_size > size - *offset) {
+        return -EINVAL;
+    }
+
+    zmk_behavior_local_id_t kp_id = zmk_behavior_get_local_id(DEVICE_DT_NAME(DT_NODELABEL(kp)));
+    if (kp_id == UINT16_MAX) {
+        return -ENODEV;
+    }
+
+    const char *kp_name =
+        zmk_behavior_find_behavior_name_from_local_id((zmk_behavior_local_id_t)kp_id);
+    if (!kp_name) {
+        return -ENODEV;
+    }
+
+    for (uint32_t i = 0; i < sequence_size; i++) {
+        uint32_t keycode;
+        ret = zmk_runtime_macro_unpack_key_tap(encoded[*offset + i], &keycode);
+        if (ret < 0) {
+            return ret;
+        }
+
+        struct zmk_behavior_binding binding = {
+            .behavior_dev = kp_name,
+            .param1 = keycode,
+            .param2 = 0,
+        };
+
+        ret = zmk_behavior_validate_binding(&binding);
+        if (ret < 0) {
+            return ret;
+        }
+
+        ret = append_tap_item(items, count, binding);
+        if (ret < 0) {
+            return ret;
+        }
+    }
+
+    *offset += sequence_size;
+    return 0;
+}
+
 static int decode_macro(const uint8_t *encoded, size_t size, struct runtime_macro_queue_item *items,
                         size_t *count) {
     *count = 0;
@@ -221,6 +319,14 @@ static int decode_macro(const uint8_t *encoded, size_t size, struct runtime_macr
             continue;
         }
 
+        if (opcode == ZMK_RUNTIME_MACRO_OP_KEY_TAP_SEQUENCE) {
+            int ret = read_key_tap_sequence(encoded, size, &offset, items, count);
+            if (ret < 0) {
+                return ret;
+            }
+            continue;
+        }
+
         struct zmk_behavior_binding binding;
         int ret = read_binding(encoded, size, &offset, &binding);
         if (ret < 0) {
@@ -243,23 +349,7 @@ static int decode_macro(const uint8_t *encoded, size_t size, struct runtime_macr
                               });
             break;
         case ZMK_RUNTIME_MACRO_OP_TAP:
-            ret = append_item(items, count,
-                              (struct runtime_macro_queue_item){
-                                  .binding = binding,
-                                  .pressed = true,
-                              });
-            ret = append_item(items, count,
-                              (struct runtime_macro_queue_item){
-                                  .is_delay = true,
-                                  .use_tap_ms = true,
-                              });
-            if (ret == 0) {
-                ret = append_item(items, count,
-                                  (struct runtime_macro_queue_item){
-                                      .binding = binding,
-                                      .pressed = false,
-                                  });
-            }
+            ret = append_tap_item(items, count, binding);
             break;
         default:
             return -EINVAL;
@@ -415,6 +505,29 @@ static int queue_runtime_macro(const struct runtime_macro_queue_item *items, siz
             }
             add_saturating_delay(queued_duration_ms, pending_delay_ms);
             pending_delay_ms = 0;
+        }
+
+        if (item->is_tap) {
+            uint32_t tap_ms = get_runtime_macro_tap_ms();
+            int ret = queue_behavior(event, &item->binding, true, tap_ms);
+            if (ret < 0) {
+                return ret;
+            }
+            add_saturating_delay(queued_duration_ms, tap_ms);
+
+            uint32_t wait_ms = 0;
+            if (i + 1 < count && items[i + 1].is_delay) {
+                wait_ms =
+                    items[i + 1].use_tap_ms ? get_runtime_macro_tap_ms() : items[i + 1].delay_ms;
+                i++;
+            }
+
+            ret = queue_behavior(event, &item->binding, false, wait_ms);
+            if (ret < 0) {
+                return ret;
+            }
+            add_saturating_delay(queued_duration_ms, wait_ms);
+            continue;
         }
 
         uint32_t wait_ms = 0;
