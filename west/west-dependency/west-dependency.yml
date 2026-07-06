@@ -6,4 +6,5 @@ manifest:
   projects:
     - name: zmk-feature-custom-settings
       url: https://github.com/cormoran/zmk-feature-custom-settings
-      revision: main
+      # TODO: revert to main once cormoran/zmk-feature-custom-settings#24 and #26 merge
+      revision: codex/large-value-pool

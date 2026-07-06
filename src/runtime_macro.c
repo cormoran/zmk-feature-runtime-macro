@@ -43,8 +43,7 @@ struct runtime_macro_player {
     bool active;
     uint32_t index;
     struct zmk_behavior_binding_event event;
-    struct zmk_custom_setting_value body_value;
-    uint8_t encoded[CONFIG_ZMK_CUSTOM_SETTINGS_VALUE_MAX_SIZE];
+    uint8_t encoded[CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES];
     struct runtime_macro_queue_item items[CONFIG_ZMK_RUNTIME_MACRO_QUEUE_SIZE];
 };
 
@@ -91,24 +90,59 @@ static const STRUCT_SECTION_ITERABLE(zmk_behavior_ref, runtime_macro_wait_behavi
     .device = DEVICE_GET(runtime_macro_wait_behavior),
 };
 
-#define DEFINE_RUNTIME_MACRO_NAME_SETTING(i, _)                                                    \
-    ZMK_CUSTOM_SETTING_ARRAY_ELEMENT_DEFINE(                                                       \
-        runtime_macro_name_##i, ZMK_RUNTIME_MACRO_SUBSYSTEM_ID, ZMK_RUNTIME_MACRO_NAMES_KEY, i,    \
-        CONFIG_ZMK_RUNTIME_MACRO_COUNT, ZMK_CUSTOM_SETTING_VALUE_TYPE_STRING,                      \
-        ZMK_CUSTOM_SETTING_VALUE_STRING(""), ZMK_CUSTOM_SETTING_CONFIDENTIALITY_RPC_PUBLIC,        \
-        ZMK_CUSTOM_SETTING_PERMISSION_UNSECURE, ZMK_CUSTOM_SETTING_PERMISSION_UNSECURE,            \
-        ZMK_CUSTOM_SETTING_NO_CONSTRAINT);
+BUILD_ASSERT(CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES <= CONFIG_ZMK_CUSTOM_SETTINGS_LARGE_VALUE_MAX_SIZE,
+             "ZMK_RUNTIME_MACRO_MAX_BYTES must not exceed "
+             "ZMK_CUSTOM_SETTINGS_LARGE_VALUE_MAX_SIZE");
+BUILD_ASSERT(CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES <= CONFIG_ZMK_RUNTIME_MACRO_POOL_BYTES,
+             "ZMK_RUNTIME_MACRO_MAX_BYTES must not exceed ZMK_RUNTIME_MACRO_POOL_BYTES");
 
-#define DEFINE_RUNTIME_MACRO_BODY_SETTING(i, _)                                                    \
-    ZMK_CUSTOM_SETTING_ARRAY_ELEMENT_DEFINE(                                                       \
-        runtime_macro_body_##i, ZMK_RUNTIME_MACRO_SUBSYSTEM_ID, ZMK_RUNTIME_MACRO_BODIES_KEY, i,   \
-        CONFIG_ZMK_RUNTIME_MACRO_COUNT, ZMK_CUSTOM_SETTING_VALUE_TYPE_BYTES,                       \
-        ZMK_CUSTOM_SETTING_VALUE_BYTES(), ZMK_CUSTOM_SETTING_CONFIDENTIALITY_RPC_PUBLIC,           \
-        ZMK_CUSTOM_SETTING_PERMISSION_UNSECURE, ZMK_CUSTOM_SETTING_PERMISSION_UNSECURE,            \
-        ZMK_CUSTOM_SETTING_NO_CONSTRAINT);
+/*
+ * Names stay plain (non-pooled, non-array) scalar settings, one per slot,
+ * keyed "names/<i>". Deliberately NOT a P3 array setting: after custom-
+ * settings' P3 rework, zmk_custom_setting_set_default() returns -ENOTSUP for
+ * array elements, which would break DT-default names and the "reset restores
+ * the DT-provided name" semantics runtime_macro_dt_defaults.c relies on.
+ */
+#define DEFINE_RUNTIME_MACRO_NAME_SETTING(i, _)                                                    \
+    ZMK_CUSTOM_SETTING_DEFINE(                                                                     \
+        runtime_macro_name_##i, ZMK_RUNTIME_MACRO_SUBSYSTEM_ID,                                    \
+        ZMK_RUNTIME_MACRO_NAMES_KEY "/" ZMK_CUSTOM_SETTINGS_STRINGIFY(i),                          \
+        ZMK_CUSTOM_SETTING_VALUE_TYPE_STRING, ZMK_CUSTOM_SETTING_VALUE_STRING(""),                 \
+        ZMK_CUSTOM_SETTING_CONFIDENTIALITY_RPC_PUBLIC, ZMK_CUSTOM_SETTING_PERMISSION_UNSECURE,     \
+        ZMK_CUSTOM_SETTING_PERMISSION_UNSECURE, ZMK_CUSTOM_SETTING_NO_CONSTRAINT);
 
 LISTIFY(CONFIG_ZMK_RUNTIME_MACRO_COUNT, DEFINE_RUNTIME_MACRO_NAME_SETTING, (), _)
+
+/*
+ * Bodies draw from one shared pool instead of each reserving its own
+ * MAX_BYTES buffer, so N-1 empty/short slots do not cost N-1 wasted MAX_BYTES
+ * regions - see docs/design/large-macros-shared-pool.md. An empty body (the
+ * default, and after a delete) occupies zero pool bytes.
+ */
+ZMK_CUSTOM_SETTING_LARGE_POOL_DEFINE(runtime_macro_pool, CONFIG_ZMK_RUNTIME_MACRO_POOL_BYTES);
+
+#define DEFINE_RUNTIME_MACRO_BODY_SETTING(i, _)                                                    \
+    ZMK_CUSTOM_SETTING_DEFINE_POOLED(                                                              \
+        runtime_macro_body_##i, CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES, runtime_macro_pool,            \
+        ZMK_RUNTIME_MACRO_SUBSYSTEM_ID,                                                            \
+        ZMK_RUNTIME_MACRO_BODIES_KEY "/" ZMK_CUSTOM_SETTINGS_STRINGIFY(i),                         \
+        ZMK_CUSTOM_SETTING_VALUE_TYPE_BYTES, ZMK_CUSTOM_SETTING_VALUE_BYTES(),                     \
+        ZMK_CUSTOM_SETTING_CONFIDENTIALITY_RPC_PUBLIC, ZMK_CUSTOM_SETTING_PERMISSION_UNSECURE,     \
+        ZMK_CUSTOM_SETTING_PERMISSION_UNSECURE, ZMK_CUSTOM_SETTING_NO_CONSTRAINT);
+
 LISTIFY(CONFIG_ZMK_RUNTIME_MACRO_COUNT, DEFINE_RUNTIME_MACRO_BODY_SETTING, (), _)
+
+#define RUNTIME_MACRO_NAME_SETTING_PTR(i, _) &runtime_macro_name_##i,
+#define RUNTIME_MACRO_BODY_SETTING_PTR(i, _) &runtime_macro_body_##i,
+
+/* Direct references to the compile-time-registered descriptors above (one
+ * STRUCT_SECTION_ITERABLE object per slot per table), resolved once at
+ * compile time - no runtime zmk_custom_setting_find() lookups, and no P3
+ * array/view-pool machinery involved anywhere in this file. */
+static const struct zmk_custom_setting *const runtime_macro_names[CONFIG_ZMK_RUNTIME_MACRO_COUNT] = {
+    LISTIFY(CONFIG_ZMK_RUNTIME_MACRO_COUNT, RUNTIME_MACRO_NAME_SETTING_PTR, (), _)};
+static const struct zmk_custom_setting *const runtime_macro_bodies[CONFIG_ZMK_RUNTIME_MACRO_COUNT] = {
+    LISTIFY(CONFIG_ZMK_RUNTIME_MACRO_COUNT, RUNTIME_MACRO_BODY_SETTING_PTR, (), _)};
 
 ZMK_CUSTOM_SETTING_DEFINE(runtime_macro_tap_ms, ZMK_RUNTIME_MACRO_SUBSYSTEM_ID,
                           ZMK_RUNTIME_MACRO_TAP_MS_KEY, ZMK_CUSTOM_SETTING_VALUE_TYPE_INT32,
@@ -423,26 +457,17 @@ static void runtime_macro_play_work_handler(struct k_work *work) {
     struct zmk_behavior_binding_event event = player.event;
     k_mutex_unlock(&player.lock);
 
-    int ret = zmk_custom_setting_read_array_by_key(
-        ZMK_RUNTIME_MACRO_SUBSYSTEM_ID, ZMK_RUNTIME_MACRO_BODIES_KEY, index, &player.body_value);
+    size_t body_size = 0;
+    int ret = zmk_custom_setting_read_into(runtime_macro_bodies[index], player.encoded,
+                                           sizeof(player.encoded), &body_size, NULL);
     if (ret < 0) {
         LOG_WRN("Runtime macro %u body read failed: %d", index, ret);
         runtime_macro_finish_playback(0);
         return;
     }
 
-    if (player.body_value.size > sizeof(player.encoded)) {
-        LOG_WRN("Runtime macro %u body too large: %zu", index, player.body_value.size);
-        runtime_macro_finish_playback(0);
-        return;
-    }
-
-    if (player.body_value.size > 0) {
-        memcpy(player.encoded, player.body_value.bytes_value, player.body_value.size);
-    }
-
     size_t count = 0;
-    ret = decode_macro(player.encoded, player.body_value.size, player.items, &count);
+    ret = decode_macro(player.encoded, body_size, player.items, &count);
     if (ret < 0) {
         LOG_WRN("Runtime macro %u decode failed: %d", index, ret);
         runtime_macro_finish_playback(0);
@@ -567,34 +592,28 @@ int zmk_runtime_macro_read(uint32_t index, char *name, size_t name_capacity, uin
     }
 
     if (name && name_capacity > 0) {
-        struct zmk_custom_setting_value name_value;
-        int ret = zmk_custom_setting_read_array_by_key(
-            ZMK_RUNTIME_MACRO_SUBSYSTEM_ID, ZMK_RUNTIME_MACRO_NAMES_KEY, index, &name_value);
+        size_t name_len = 0;
+        /* STRING read_into copies the payload without its NUL terminator. */
+        int ret = zmk_custom_setting_read_into(runtime_macro_names[index], name, name_capacity - 1,
+                                               &name_len, NULL);
         if (ret < 0) {
             return ret;
         }
-
-        size_t copy_size = MIN(name_value.size, name_capacity - 1);
-        memcpy(name, name_value.string_value, copy_size);
-        name[copy_size] = '\0';
+        name[name_len] = '\0';
     }
 
-    struct zmk_custom_setting_value body_value;
-    int ret = zmk_custom_setting_read_array_by_key(
-        ZMK_RUNTIME_MACRO_SUBSYSTEM_ID, ZMK_RUNTIME_MACRO_BODIES_KEY, index, &body_value);
+    size_t body_size = 0;
+    /* The only firmware path that can reach a body above the 64-byte carrier:
+     * read_into re-derefs the setting's (possibly pool-relocated) storage
+     * under settings_lock every call, so this is safe regardless of any
+     * compaction that happened between calls (see custom_settings.h). */
+    int ret = zmk_custom_setting_read_into(runtime_macro_bodies[index], encoded, encoded_capacity,
+                                           &body_size, NULL);
     if (ret < 0) {
         return ret;
     }
-
-    if (body_value.size > encoded_capacity) {
-        return -EMSGSIZE;
-    }
-
-    if (encoded && body_value.size > 0) {
-        memcpy(encoded, body_value.bytes_value, body_value.size);
-    }
     if (encoded_size) {
-        *encoded_size = body_value.size;
+        *encoded_size = body_size;
     }
 
     return 0;
@@ -611,34 +630,26 @@ int zmk_runtime_macro_write(uint32_t index, const char *name, const uint8_t *enc
         return ret;
     }
 
+    if (encoded_size > CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES) {
+        return -EMSGSIZE;
+    }
+
     enum zmk_custom_setting_write_mode mode =
         persist ? ZMK_CUSTOM_SETTING_WRITE_MODE_PERSIST : ZMK_CUSTOM_SETTING_WRITE_MODE_MEMORY;
 
-    struct zmk_custom_setting_value name_value = {
-        .type = ZMK_CUSTOM_SETTING_VALUE_TYPE_STRING,
-    };
-    if (name) {
-        name_value.size = MIN(strlen(name), CONFIG_ZMK_CUSTOM_SETTINGS_VALUE_MAX_SIZE);
-        memcpy(name_value.string_value, name, name_value.size);
-        name_value.string_value[name_value.size] = '\0';
-    }
-
-    ret = zmk_custom_setting_write_array_by_key(
-        ZMK_RUNTIME_MACRO_SUBSYSTEM_ID, ZMK_RUNTIME_MACRO_NAMES_KEY, index, &name_value, mode);
+    const char *safe_name = name ? name : "";
+    ret = zmk_custom_setting_write_bytes(runtime_macro_names[index], safe_name, strlen(safe_name),
+                                         mode);
     if (ret < 0) {
         return ret;
     }
 
-    struct zmk_custom_setting_value body_value = {
-        .type = ZMK_CUSTOM_SETTING_VALUE_TYPE_BYTES,
-        .size = encoded_size,
-    };
-    if (encoded_size > 0) {
-        memcpy(body_value.bytes_value, encoded, encoded_size);
-    }
-
-    return zmk_custom_setting_write_array_by_key(
-        ZMK_RUNTIME_MACRO_SUBSYSTEM_ID, ZMK_RUNTIME_MACRO_BODIES_KEY, index, &body_value, mode);
+    /* -ENOSPC here means the shared body pool (CONFIG_ZMK_RUNTIME_MACRO_POOL_BYTES)
+     * is exhausted; propagate it unchanged so the Studio RPC handler can
+     * surface a clear "pool full" message. The previous body value is left
+     * intact - custom-settings' pool allocator only commits a move once the
+     * new region is guaranteed to fit. */
+    return zmk_custom_setting_write_bytes(runtime_macro_bodies[index], encoded, encoded_size, mode);
 }
 
 int zmk_runtime_macro_play(uint32_t index, const struct zmk_behavior_binding_event *event) {
@@ -647,4 +658,10 @@ int zmk_runtime_macro_play(uint32_t index, const struct zmk_behavior_binding_eve
     }
 
     return runtime_macro_start_playback(index, event);
+}
+
+size_t zmk_runtime_macro_pool_total(void) { return CONFIG_ZMK_RUNTIME_MACRO_POOL_BYTES; }
+
+size_t zmk_runtime_macro_pool_used(void) {
+    return zmk_custom_setting_large_pool_used(&runtime_macro_pool);
 }

@@ -8,6 +8,7 @@
 
 #include <errno.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <string.h>
 
 #include <zephyr/device.h>
@@ -483,6 +484,13 @@ static int install_one_default(size_t storage_idx, const struct runtime_macro_de
         return -EALREADY;
     }
 
+    /* v1 limitation (see docs/design/large-macros-shared-pool.md §B.5):
+     * zmk_custom_setting_set_default() only accepts the 64-byte carrier value
+     * even for pooled/large-capable settings, so a DT-provided default body
+     * must stay within CONFIG_ZMK_CUSTOM_SETTINGS_VALUE_MAX_SIZE (64) encoded
+     * bytes even though a runtime-written macro may use the full
+     * CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES. An upstream `set_default_bytes`
+     * variant (pointer + size) would lift this. */
     uint8_t encoded[CONFIG_ZMK_CUSTOM_SETTINGS_VALUE_MAX_SIZE];
     struct runtime_macro_encode_state state = {
         .buf = encoded,
@@ -518,10 +526,20 @@ static int install_one_default(size_t storage_idx, const struct runtime_macro_de
         goto encode_failed;
     }
 
-    const struct zmk_custom_setting *body_setting = zmk_custom_setting_find_array_element(
-        ZMK_RUNTIME_MACRO_SUBSYSTEM_ID, ZMK_RUNTIME_MACRO_BODIES_KEY, cfg->slot);
-    const struct zmk_custom_setting *name_setting = zmk_custom_setting_find_array_element(
-        ZMK_RUNTIME_MACRO_SUBSYSTEM_ID, ZMK_RUNTIME_MACRO_NAMES_KEY, cfg->slot);
+    /* Names/bodies are plain per-slot scalars keyed "<prefix>/<slot>" (not P3
+     * array elements - see src/runtime_macro.c), so slots are looked up by
+     * formatted key rather than by array index. `cfg->slot` is a devicetree-
+     * derived runtime value, so this can't be resolved at compile time the
+     * way src/runtime_macro.c's descriptor tables are. */
+    char body_key[sizeof(ZMK_RUNTIME_MACRO_BODIES_KEY) + 10];
+    char name_key[sizeof(ZMK_RUNTIME_MACRO_NAMES_KEY) + 10];
+    snprintf(body_key, sizeof(body_key), ZMK_RUNTIME_MACRO_BODIES_KEY "/%u", cfg->slot);
+    snprintf(name_key, sizeof(name_key), ZMK_RUNTIME_MACRO_NAMES_KEY "/%u", cfg->slot);
+
+    const struct zmk_custom_setting *body_setting =
+        zmk_custom_setting_find(ZMK_RUNTIME_MACRO_SUBSYSTEM_ID, body_key);
+    const struct zmk_custom_setting *name_setting =
+        zmk_custom_setting_find(ZMK_RUNTIME_MACRO_SUBSYSTEM_ID, name_key);
     if (!body_setting || !name_setting) {
         LOG_ERR("Runtime macro default: slot %u setting not registered", cfg->slot);
         return -ENODEV;
@@ -554,7 +572,14 @@ static int install_one_default(size_t storage_idx, const struct runtime_macro_de
     return 0;
 
 encode_failed:
-    LOG_ERR("Runtime macro default: slot %u failed to encode: %d", cfg->slot, ret);
+    if (ret == -ENOSPC) {
+        LOG_ERR("Runtime macro default: slot %u DT default exceeds the %u-byte default limit "
+                "(runtime-written macros may be larger, up to "
+                "CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES=%u); skipping",
+                cfg->slot, CONFIG_ZMK_CUSTOM_SETTINGS_VALUE_MAX_SIZE, CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES);
+    } else {
+        LOG_ERR("Runtime macro default: slot %u failed to encode: %d", cfg->slot, ret);
+    }
     return ret;
 }
 

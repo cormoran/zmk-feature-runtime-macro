@@ -15,10 +15,30 @@ config ZMK_RUNTIME_MACRO_COUNT
     default 8
     range 1 16
 
+config ZMK_RUNTIME_MACRO_POOL_BYTES
+    int "Shared runtime macro body pool size (bytes)"
+    default 1024
+    help
+      Total bytes shared by all macro bodies. This is the only resident RAM
+      added for large-macro support. The sum of all encoded bodies must fit;
+      any single macro may use up to ZMK_RUNTIME_MACRO_MAX_BYTES.
+
+config ZMK_RUNTIME_MACRO_MAX_BYTES
+    int "Maximum encoded bytes per runtime macro"
+    default 256
+    range ZMK_CUSTOM_SETTINGS_VALUE_MAX_SIZE ZMK_CUSTOM_SETTINGS_LARGE_VALUE_MAX_SIZE
+    help
+      Per-macro ceiling. Sizes the transient playback/RPC staging buffers, so
+      keep it as small as your longest macro needs even if the pool is larger.
+
 config ZMK_RUNTIME_MACRO_QUEUE_SIZE
     int "Maximum queued runtime macro actions"
     default 64
     range 1 128
+    help
+      A longer macro body (see ZMK_RUNTIME_MACRO_MAX_BYTES) can decode into
+      more queued actions; raise this alongside MAX_BYTES if long macros hit
+      this cap (playback aborts cleanly with a log warning if they do).
 
 config ZMK_RUNTIME_MACRO_DEFAULT_TAP_MS
     int "Default tap duration for runtime macro taps"

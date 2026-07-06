@@ -12,6 +12,8 @@
 #include <zmk/behavior.h>
 
 #define ZMK_RUNTIME_MACRO_SUBSYSTEM_ID "cormoran__runtime_macro"
+/* Key *prefixes*: each slot `i` is stored under "<prefix>/<i>" (e.g. "names/0",
+ * "macros/0") as its own scalar custom setting - see src/runtime_macro.c. */
 #define ZMK_RUNTIME_MACRO_NAMES_KEY "names"
 #define ZMK_RUNTIME_MACRO_BODIES_KEY "macros"
 #define ZMK_RUNTIME_MACRO_TAP_MS_KEY "tap_ms"
@@ -34,3 +36,9 @@ int zmk_runtime_macro_read(uint32_t index, char *name, size_t name_capacity, uin
                            size_t encoded_capacity, size_t *encoded_size);
 int zmk_runtime_macro_write(uint32_t index, const char *name, const uint8_t *encoded,
                             size_t encoded_size, bool persist);
+
+/* Total bytes configured for the shared macro-body pool
+ * (CONFIG_ZMK_RUNTIME_MACRO_POOL_BYTES) and the bytes currently occupied by
+ * all slots' bodies combined - for RPC/UI budget reporting. */
+size_t zmk_runtime_macro_pool_total(void);
+size_t zmk_runtime_macro_pool_used(void);
