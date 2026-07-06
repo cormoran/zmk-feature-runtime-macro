@@ -149,7 +149,9 @@ describe("RuntimeMacroEditor Component", () => {
 
   describe("Large macro support", () => {
     it("respects a dynamic max_macro_bytes and shows shared pool usage", async () => {
-      const { call_rpc } = jest.requireMock("@zmkfirmware/zmk-studio-ts-client");
+      const { call_rpc } = jest.requireMock(
+        "@zmkfirmware/zmk-studio-ts-client"
+      );
       (call_rpc as jest.Mock).mockImplementation(
         async (
           _connection: unknown,

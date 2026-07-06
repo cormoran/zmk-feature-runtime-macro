@@ -577,7 +577,8 @@ encode_failed:
         LOG_ERR("Runtime macro default: slot %u DT default exceeds the %u-byte default limit "
                 "(runtime-written macros may be larger, up to "
                 "CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES=%u); skipping",
-                cfg->slot, CONFIG_ZMK_CUSTOM_SETTINGS_VALUE_MAX_SIZE, CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES);
+                cfg->slot, CONFIG_ZMK_CUSTOM_SETTINGS_VALUE_MAX_SIZE,
+                CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES);
     } else {
         LOG_ERR("Runtime macro default: slot %u failed to encode: %d", cfg->slot, ret);
     }

@@ -141,10 +141,10 @@ LISTIFY(CONFIG_ZMK_RUNTIME_MACRO_COUNT, DEFINE_RUNTIME_MACRO_BODY_SETTING, (), _
  * STRUCT_SECTION_ITERABLE object per slot per table), resolved once at
  * compile time - no runtime zmk_custom_setting_find() lookups, and no P3
  * array/view-pool machinery involved anywhere in this file. */
-static const struct zmk_custom_setting *const runtime_macro_names[CONFIG_ZMK_RUNTIME_MACRO_COUNT] = {
-    LISTIFY(CONFIG_ZMK_RUNTIME_MACRO_COUNT, RUNTIME_MACRO_NAME_SETTING_PTR, (), _)};
-static const struct zmk_custom_setting *const runtime_macro_bodies[CONFIG_ZMK_RUNTIME_MACRO_COUNT] = {
-    LISTIFY(CONFIG_ZMK_RUNTIME_MACRO_COUNT, RUNTIME_MACRO_BODY_SETTING_PTR, (), _)};
+static const struct zmk_custom_setting *const runtime_macro_names[CONFIG_ZMK_RUNTIME_MACRO_COUNT] =
+    {LISTIFY(CONFIG_ZMK_RUNTIME_MACRO_COUNT, RUNTIME_MACRO_NAME_SETTING_PTR, (), _)};
+static const struct zmk_custom_setting *const runtime_macro_bodies[CONFIG_ZMK_RUNTIME_MACRO_COUNT] =
+    {LISTIFY(CONFIG_ZMK_RUNTIME_MACRO_COUNT, RUNTIME_MACRO_BODY_SETTING_PTR, (), _)};
 
 ZMK_CUSTOM_SETTING_DEFINE(runtime_macro_tap_ms, ZMK_RUNTIME_MACRO_SUBSYSTEM_ID,
                           ZMK_RUNTIME_MACRO_TAP_MS_KEY, ZMK_CUSTOM_SETTING_VALUE_TYPE_INT32,
