@@ -20,7 +20,7 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
-#define RUNTIME_MACRO_RPC_MAX_STEPS 32
+#define RUNTIME_MACRO_RPC_MAX_STEPS 64
 
 static bool runtime_macro_rpc_handle_request(const zmk_custom_CallRequest *raw_request,
                                              pb_callback_t *encode_response);
@@ -232,6 +232,16 @@ static int decode_steps(const uint8_t *encoded, size_t encoded_size,
     return 0;
 }
 
+/* No packed-key-run splitting is needed here: KeyTapSequenceStep.packed_keys
+ * stays capped at max_size:64 by the proto (.options unchanged), so every
+ * individual MacroStep this function receives already encodes to at most one
+ * KEY_TAP_SEQUENCE opcode of <= 64 keys. Raising MacroSlot.steps' max_count
+ * to 64 lets a macro carry more *steps* (e.g. more separate sequences/
+ * bindings up to CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES total), not longer
+ * individual sequences - a run of >64 consecutive taps must already arrive
+ * as multiple KEY_TAP_SEQUENCE steps (the Web UI's macroCodec splits on
+ * encode; decode_steps already reassembles any number of consecutive
+ * sequence ops transparently). */
 static int encode_steps(const cormoran_runtime_macro_MacroStep *steps, pb_size_t steps_count,
                         uint8_t *encoded, size_t encoded_capacity, size_t *encoded_size) {
     if (encoded_capacity == 0) {
@@ -301,12 +311,12 @@ static int handle_list_macros(cormoran_runtime_macro_Response *resp) {
     cormoran_runtime_macro_ListMacrosResponse result =
         cormoran_runtime_macro_ListMacrosResponse_init_zero;
 
-    result.max_macro_bytes = CONFIG_ZMK_CUSTOM_SETTINGS_VALUE_MAX_SIZE;
+    result.max_macro_bytes = CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES;
     result.max_name_length = CONFIG_ZMK_CUSTOM_SETTINGS_VALUE_MAX_SIZE;
 
     for (uint32_t i = 0; i < CONFIG_ZMK_RUNTIME_MACRO_COUNT; i++) {
         cormoran_runtime_macro_MacroSummary *summary = &result.macros[result.macros_count++];
-        uint8_t encoded[CONFIG_ZMK_CUSTOM_SETTINGS_VALUE_MAX_SIZE];
+        uint8_t encoded[CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES];
         size_t encoded_size = 0;
 
         summary->index = i;
@@ -352,6 +362,8 @@ static int handle_get_macro_global_settings(cormoran_runtime_macro_Response *res
     result.settings.max_macro = CONFIG_ZMK_RUNTIME_MACRO_COUNT;
     result.settings.key_press_behavior_id =
         zmk_behavior_get_local_id(DEVICE_DT_NAME(DT_NODELABEL(kp)));
+    result.settings.pool_bytes_total = zmk_runtime_macro_pool_total();
+    result.settings.pool_bytes_used = zmk_runtime_macro_pool_used();
 
     resp->which_response_type = cormoran_runtime_macro_Response_get_macro_global_settings_tag;
     resp->response_type.get_macro_global_settings = result;
@@ -387,7 +399,7 @@ static int handle_set_tap_ms(const cormoran_runtime_macro_SetTapMsRequest *req,
 
 static int fill_macro_slot(uint32_t index, cormoran_runtime_macro_MacroSlot *slot) {
     size_t encoded_size = 0;
-    uint8_t encoded[CONFIG_ZMK_CUSTOM_SETTINGS_VALUE_MAX_SIZE];
+    uint8_t encoded[CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES];
 
     int ret = zmk_runtime_macro_read(index, slot->name, sizeof(slot->name), encoded,
                                      sizeof(encoded), &encoded_size);
@@ -425,7 +437,7 @@ static int handle_get_macro(const cormoran_runtime_macro_GetMacroRequest *req,
 
 static int handle_set_macro_name(const cormoran_runtime_macro_SetMacroNameRequest *req,
                                  cormoran_runtime_macro_Response *resp) {
-    uint8_t encoded[CONFIG_ZMK_CUSTOM_SETTINGS_VALUE_MAX_SIZE];
+    uint8_t encoded[CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES];
     char current_name[CONFIG_ZMK_CUSTOM_SETTINGS_VALUE_MAX_SIZE + 1];
     size_t encoded_size = 0;
 
@@ -453,7 +465,7 @@ static int handle_set_macro_name(const cormoran_runtime_macro_SetMacroNameReques
 static int read_macro_steps(uint32_t index, char *name, size_t name_size,
                             cormoran_runtime_macro_MacroStep *steps, pb_size_t *steps_count,
                             pb_size_t steps_capacity) {
-    uint8_t current_encoded[CONFIG_ZMK_CUSTOM_SETTINGS_VALUE_MAX_SIZE];
+    uint8_t current_encoded[CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES];
     size_t current_encoded_size = 0;
 
     int ret = zmk_runtime_macro_read(index, name, name_size, current_encoded,
@@ -468,7 +480,7 @@ static int read_macro_steps(uint32_t index, char *name, size_t name_size,
 static int write_macro_steps(uint32_t index, const char *name,
                              const cormoran_runtime_macro_MacroStep *steps, pb_size_t steps_count,
                              bool persist) {
-    uint8_t encoded[CONFIG_ZMK_CUSTOM_SETTINGS_VALUE_MAX_SIZE];
+    uint8_t encoded[CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES];
     size_t encoded_size = 0;
 
     int ret = encode_steps(steps, steps_count, encoded, sizeof(encoded), &encoded_size);
@@ -662,7 +674,15 @@ static bool runtime_macro_rpc_handle_request(const zmk_custom_CallRequest *raw_r
     }
 
     if (ret < 0) {
-        set_errno_error(resp, "Runtime macro RPC", ret);
+        /* -ENOSPC from a body write means the shared macro pool
+         * (CONFIG_ZMK_RUNTIME_MACRO_POOL_BYTES) is exhausted - give a clear,
+         * actionable message instead of the generic errno text; every other
+         * failure keeps the generic format. */
+        if (ret == -ENOSPC) {
+            set_error(resp, "Macro pool full: delete or shrink another macro");
+        } else {
+            set_errno_error(resp, "Runtime macro RPC", ret);
+        }
     }
 
     return true;

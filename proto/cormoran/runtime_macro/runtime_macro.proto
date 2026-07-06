@@ -108,6 +108,10 @@ message MacroGlobalSettings {
     uint32 tap_ms = 1;
     uint32 max_macro = 2;
     uint32 key_press_behavior_id = 3;
+    // Shared macro-body pool budget (CONFIG_ZMK_RUNTIME_MACRO_POOL_BYTES) and
+    // the bytes currently occupied by all slots' bodies combined.
+    uint32 pool_bytes_total = 4;
+    uint32 pool_bytes_used = 5;
 }
 
 message GetMacroGlobalSettingsResponse { MacroGlobalSettings settings = 1; }
