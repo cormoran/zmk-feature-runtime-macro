@@ -12,8 +12,18 @@
 #include <zmk/behavior.h>
 
 #define ZMK_RUNTIME_MACRO_SUBSYSTEM_ID "cormoran__runtime_macro"
-/* Key *prefixes*: each slot `i` is stored under "<prefix>/<i>" (e.g. "names/0",
- * "macros/0") as its own scalar custom setting - see src/runtime_macro.c. */
+/* Key *prefixes*: each slot `i` is stored under "<prefix>.<i>" (e.g. "names.0",
+ * "macros.0") as its own scalar custom setting - see src/runtime_macro.c.
+ * The separator is '.', deliberately NOT '/': zmk-feature-custom-settings'
+ * settings-load handler (custom_settings_handle_set -> split_array_element_key)
+ * treats ANY stored key of the form "<text>/<digits>" as a legacy pre-P3
+ * array-element record and tries to resolve it via
+ * zmk_custom_setting_find_array_element() instead of zmk_custom_setting_find() -
+ * regardless of whether a real array is registered under that key. Since
+ * these are plain (non-array) scalars, a "/"-separated key would silently
+ * fail to reload on every settings_load() (boot) and
+ * zmk_custom_setting_discard()/reset() (which replays via
+ * settings_load_subtree()), even though the initial write/save succeeds. */
 #define ZMK_RUNTIME_MACRO_NAMES_KEY "names"
 #define ZMK_RUNTIME_MACRO_BODIES_KEY "macros"
 #define ZMK_RUNTIME_MACRO_TAP_MS_KEY "tap_ms"

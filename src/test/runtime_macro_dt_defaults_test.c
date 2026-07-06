@@ -53,12 +53,12 @@ static int runtime_macro_dt_defaults_test_init(void) {
     }
     LOG_INF("PASS: runtime_macro_dt_default_overridden name=%s", name);
 
-    /* Slot 0's name/body are plain per-slot scalars keyed "<prefix>/0" (not P3
+    /* Slot 0's name/body are plain per-slot scalars keyed "<prefix>.0" (not P3
      * array elements) - see src/runtime_macro.c. */
     const struct zmk_custom_setting *name_setting =
-        zmk_custom_setting_find(ZMK_RUNTIME_MACRO_SUBSYSTEM_ID, ZMK_RUNTIME_MACRO_NAMES_KEY "/0");
+        zmk_custom_setting_find(ZMK_RUNTIME_MACRO_SUBSYSTEM_ID, ZMK_RUNTIME_MACRO_NAMES_KEY ".0");
     const struct zmk_custom_setting *body_setting =
-        zmk_custom_setting_find(ZMK_RUNTIME_MACRO_SUBSYSTEM_ID, ZMK_RUNTIME_MACRO_BODIES_KEY "/0");
+        zmk_custom_setting_find(ZMK_RUNTIME_MACRO_SUBSYSTEM_ID, ZMK_RUNTIME_MACRO_BODIES_KEY ".0");
     if (!name_setting || !body_setting) {
         LOG_ERR("Runtime macro slot 0 settings not found");
         return -ENODEV;

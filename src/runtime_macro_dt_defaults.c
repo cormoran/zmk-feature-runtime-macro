@@ -526,15 +526,16 @@ static int install_one_default(size_t storage_idx, const struct runtime_macro_de
         goto encode_failed;
     }
 
-    /* Names/bodies are plain per-slot scalars keyed "<prefix>/<slot>" (not P3
-     * array elements - see src/runtime_macro.c), so slots are looked up by
-     * formatted key rather than by array index. `cfg->slot` is a devicetree-
-     * derived runtime value, so this can't be resolved at compile time the
-     * way src/runtime_macro.c's descriptor tables are. */
+    /* Names/bodies are plain per-slot scalars keyed "<prefix>.<slot>" (not P3
+     * array elements - see src/runtime_macro.c and the '.' vs '/' separator
+     * note on ZMK_RUNTIME_MACRO_NAMES_KEY/BODIES_KEY in the header), so slots
+     * are looked up by formatted key rather than by array index. `cfg->slot`
+     * is a devicetree-derived runtime value, so this can't be resolved at
+     * compile time the way src/runtime_macro.c's descriptor tables are. */
     char body_key[sizeof(ZMK_RUNTIME_MACRO_BODIES_KEY) + 10];
     char name_key[sizeof(ZMK_RUNTIME_MACRO_NAMES_KEY) + 10];
-    snprintf(body_key, sizeof(body_key), ZMK_RUNTIME_MACRO_BODIES_KEY "/%u", cfg->slot);
-    snprintf(name_key, sizeof(name_key), ZMK_RUNTIME_MACRO_NAMES_KEY "/%u", cfg->slot);
+    snprintf(body_key, sizeof(body_key), ZMK_RUNTIME_MACRO_BODIES_KEY ".%u", cfg->slot);
+    snprintf(name_key, sizeof(name_key), ZMK_RUNTIME_MACRO_NAMES_KEY ".%u", cfg->slot);
 
     const struct zmk_custom_setting *body_setting =
         zmk_custom_setting_find(ZMK_RUNTIME_MACRO_SUBSYSTEM_ID, body_key);

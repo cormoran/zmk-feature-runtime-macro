@@ -98,15 +98,17 @@ BUILD_ASSERT(CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES <= CONFIG_ZMK_RUNTIME_MACRO_POOL
 
 /*
  * Names stay plain (non-pooled, non-array) scalar settings, one per slot,
- * keyed "names/<i>". Deliberately NOT a P3 array setting: after custom-
- * settings' P3 rework, zmk_custom_setting_set_default() returns -ENOTSUP for
- * array elements, which would break DT-default names and the "reset restores
- * the DT-provided name" semantics runtime_macro_dt_defaults.c relies on.
+ * keyed "names.<i>" (a '.', not '/', separates the prefix from the index -
+ * see the ZMK_RUNTIME_MACRO_NAMES_KEY/BODIES_KEY doc comment in the header
+ * for why). Deliberately NOT a P3 array setting: after custom-settings' P3
+ * rework, zmk_custom_setting_set_default() returns -ENOTSUP for array
+ * elements, which would break DT-default names and the "reset restores the
+ * DT-provided name" semantics runtime_macro_dt_defaults.c relies on.
  */
 #define DEFINE_RUNTIME_MACRO_NAME_SETTING(i, _)                                                    \
     ZMK_CUSTOM_SETTING_DEFINE(                                                                     \
         runtime_macro_name_##i, ZMK_RUNTIME_MACRO_SUBSYSTEM_ID,                                    \
-        ZMK_RUNTIME_MACRO_NAMES_KEY "/" ZMK_CUSTOM_SETTINGS_STRINGIFY(i),                          \
+        ZMK_RUNTIME_MACRO_NAMES_KEY "." ZMK_CUSTOM_SETTINGS_STRINGIFY(i),                          \
         ZMK_CUSTOM_SETTING_VALUE_TYPE_STRING, ZMK_CUSTOM_SETTING_VALUE_STRING(""),                 \
         ZMK_CUSTOM_SETTING_CONFIDENTIALITY_RPC_PUBLIC, ZMK_CUSTOM_SETTING_PERMISSION_UNSECURE,     \
         ZMK_CUSTOM_SETTING_PERMISSION_UNSECURE, ZMK_CUSTOM_SETTING_NO_CONSTRAINT);
@@ -125,7 +127,7 @@ ZMK_CUSTOM_SETTING_LARGE_POOL_DEFINE(runtime_macro_pool, CONFIG_ZMK_RUNTIME_MACR
     ZMK_CUSTOM_SETTING_DEFINE_POOLED(                                                              \
         runtime_macro_body_##i, CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES, runtime_macro_pool,            \
         ZMK_RUNTIME_MACRO_SUBSYSTEM_ID,                                                            \
-        ZMK_RUNTIME_MACRO_BODIES_KEY "/" ZMK_CUSTOM_SETTINGS_STRINGIFY(i),                         \
+        ZMK_RUNTIME_MACRO_BODIES_KEY "." ZMK_CUSTOM_SETTINGS_STRINGIFY(i),                         \
         ZMK_CUSTOM_SETTING_VALUE_TYPE_BYTES, ZMK_CUSTOM_SETTING_VALUE_BYTES(),                     \
         ZMK_CUSTOM_SETTING_CONFIDENTIALITY_RPC_PUBLIC, ZMK_CUSTOM_SETTING_PERMISSION_UNSECURE,     \
         ZMK_CUSTOM_SETTING_PERMISSION_UNSECURE, ZMK_CUSTOM_SETTING_NO_CONSTRAINT);
