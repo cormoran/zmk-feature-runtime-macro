@@ -79,6 +79,22 @@ static int runtime_macro_dt_defaults_test_init(void) {
     }
     LOG_INF("PASS: runtime_macro_dt_default_restored_after_reset name=%s", name);
 
+    /* Slot 2's devicetree default (`text` of 72 'a's, see
+     * tests/dt-defaults/native_sim.keymap) encodes to well over the 64-byte
+     * carrier zmk_custom_setting_set_default() accepts (v1 limitation - see
+     * docs/design/large-macros-shared-pool.md §B.5). install_one_default()
+     * must skip it with a clear log rather than crash or corrupt the slot,
+     * and - since it's best-effort - must not have prevented slots 0/1's
+     * defaults (already verified above) from installing. A skipped default
+     * leaves the slot at its compiled-in empty default. */
+    ret = zmk_runtime_macro_read(2, name, sizeof(name), encoded, sizeof(encoded), &encoded_size);
+    if (ret < 0 || name[0] != '\0' || encoded_size != 0) {
+        LOG_ERR("Oversized devicetree default was not cleanly skipped: ret=%d name=%s size=%zu",
+                ret, name, encoded_size);
+        return -EINVAL;
+    }
+    LOG_INF("PASS: runtime_macro_dt_default_oversized_skipped");
+
     return 0;
 }
 
