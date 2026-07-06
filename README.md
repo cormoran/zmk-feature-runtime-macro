@@ -18,7 +18,7 @@ Each macro has a display name for the Web UI and a compact binary body. The body
 - delay in milliseconds
 - packed `&kp` tap sequence using the global `tap_ms` setting
 
-The macro body stores behavior local IDs and two behavior params. Names are stored separately from bodies using [zmk-feature-custom-settings](https://github.com/cormoran/zmk-feature-custom-settings): `names[]` is an array string setting and `macros[]` is an array bytes setting under subsystem `cormoran__runtime_macro`.
+The macro body stores behavior local IDs and two behavior params. Names and bodies are each stored as one [zmk-feature-custom-settings](https://github.com/cormoran/zmk-feature-custom-settings) setting per slot (`names.0`, `names.1`, ..., `macros.0`, `macros.1`, ...) under subsystem `cormoran__runtime_macro`. Every macro body shares one RAM pool - see [Macro Size Limits](#macro-size-limits) below.
 
 Tap duration is a scalar custom setting, `tap_ms`, in the same subsystem. If one step needs a different duration, encode it as down, delay, then up.
 
@@ -53,6 +53,9 @@ CONFIG_ZMK_RUNTIME_MACRO_STUDIO_RPC=y
 CONFIG_ZMK_STUDIO_RPC_RX_BUF_SIZE=192
 CONFIG_ZMK_STUDIO_RPC_CUSTOM_SUBSYSTEM_REQUEST_PAYLOAD_MAX_BYTES=192
 CONFIG_ZMK_LOW_PRIORITY_THREAD_STACK_SIZE=2048
+# Required alongside the defaults below (see "Macro Size Limits"):
+CONFIG_ZMK_CUSTOM_SETTINGS_LARGE_VALUE_MAX_SIZE=256
+CONFIG_ZMK_STUDIO_RPC_THREAD_STACK_SIZE=8192
 ```
 
 Include the behavior definition and bind a macro slot in your keymap.
@@ -129,6 +132,8 @@ At least one of `text` or `bindings` must be set.
 
 A default behaves like a factory value, not a one-time seed: it shows up in the Web UI like any other macro, editing and saving it writes a normal user value that shadows the default, and **Discard Pending** / resetting the setting / erasing settings all bring the devicetree default back. If a default fails to encode (for example an unsupported character in `text`, or a `slot` that doesn't fit `CONFIG_ZMK_RUNTIME_MACRO_COUNT`), that one slot is skipped and logged - it does not fail the rest of the build.
 
+**Devicetree defaults are limited to 64 encoded bytes**, smaller than the `CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES` limit that applies to macros written from the Web UI - see [Macro Size Limits](#macro-size-limits). A `text`/`bindings` default that encodes past 64 bytes is skipped with a log at boot ("DT default exceeds the 64-byte default limit") rather than failing the build; keep devicetree defaults short, and use the Web UI for longer macros.
+
 ## Binary Format
 
 Each stored macro body is a byte array:
@@ -150,7 +155,21 @@ key sequence: opcode=5, byte_length, packed_key_bytes...
 
 The key sequence opcode is optimized for consecutive `&kp` taps that use HID keyboard usages with no modifier or left shift. Each packed key byte uses bit 7 for left shift and bits 0-6 for the HID keyboard usage ID, so common ASCII-producing taps cost one byte per key plus the opcode and length bytes. During playback each packed key is expanded to a normal `&kp <keycode>` tap using the global `tap_ms` value.
 
-The default custom-settings value size is 64 bytes, so the UI reports the encoded byte size before saving.
+## Macro Size Limits
+
+Every macro body draws from **one shared RAM pool** sized by `CONFIG_ZMK_RUNTIME_MACRO_POOL_BYTES` (default 1024 bytes), instead of each of the `CONFIG_ZMK_RUNTIME_MACRO_COUNT` slots reserving its own worst-case buffer. A short macro (or an empty, unused slot) costs close to zero pool bytes; a long one can use much more, up to a per-macro ceiling:
+
+| Kconfig                                    | Meaning                                                                                      | Default |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------- | ------- |
+| `CONFIG_ZMK_RUNTIME_MACRO_POOL_BYTES`       | Total bytes shared by every macro body combined.                                              | 1024    |
+| `CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES`        | Largest a single macro's encoded body may be. Also sizes playback/RPC staging buffers.         | 256     |
+| `CONFIG_ZMK_CUSTOM_SETTINGS_LARGE_VALUE_MAX_SIZE` (from zmk-feature-custom-settings) | Must be raised to at least `MAX_BYTES` (see the `.conf` snippet above) - it caps every large/pooled setting in the firmware, not just this module's. | 64 |
+
+Raise `POOL_BYTES` if you want many long macros to coexist; raise `MAX_BYTES` (and `LARGE_VALUE_MAX_SIZE` alongside it) if a single macro needs to be longer than 256 bytes. Keep `MAX_BYTES` no larger than you actually need - it sizes the transient playback buffer and the Studio RPC step-staging buffers even for short macros. A longer macro can also decode into more queued key/behavior events than `CONFIG_ZMK_RUNTIME_MACRO_QUEUE_SIZE` (default 64) allows during playback; raise it alongside `MAX_BYTES` if a very long macro's playback aborts with a "queue failed" log.
+
+If the pool is full, saving or updating a macro body fails and the Web UI shows **"Macro pool full: delete or shrink another macro"** - the macro's previous value is left untouched. The Web UI also shows the pool's current usage (e.g. "Shared macro pool: 300/1024 B used") next to the macro list.
+
+Devicetree defaults have a separate, smaller limit - see the note in [Devicetree Default Macros](#devicetree-default-macros).
 
 ## Development
 
