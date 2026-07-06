@@ -208,6 +208,11 @@ textarea {
   color: #92400e;
 }
 
+.pool-usage {
+  margin: 0 0 10px;
+  font-size: 0.85rem;
+}
+
 @media (max-width: 860px) {
   .workspace {
     grid-template-columns: 1fr;

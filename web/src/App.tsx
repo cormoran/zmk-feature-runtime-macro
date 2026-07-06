@@ -125,6 +125,8 @@ export function RuntimeMacroEditor() {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [loadedMacro, setLoadedMacro] = useState<LoadedMacro | null>(null);
   const [maxMacroBytes, setMaxMacroBytes] = useState(64);
+  const [poolBytesTotal, setPoolBytesTotal] = useState(0);
+  const [poolBytesUsed, setPoolBytesUsed] = useState(0);
   const [tapMs, setTapMs] = useState(30);
   const [keyPressBehaviorId, setKeyPressBehaviorId] = useState<
     number | undefined
@@ -205,6 +207,8 @@ export function RuntimeMacroEditor() {
       const nextKeyPressBehaviorId = settings?.keyPressBehaviorId || undefined;
       setTapMs(settings?.tapMs ?? 30);
       setKeyPressBehaviorId(nextKeyPressBehaviorId);
+      setPoolBytesTotal(settings?.poolBytesTotal ?? 0);
+      setPoolBytesUsed(settings?.poolBytesUsed ?? 0);
       if (list.length > 0) {
         await loadMacro(
           list[Math.min(selectedIndex, list.length - 1)].index,
@@ -452,6 +456,17 @@ export function RuntimeMacroEditor() {
             Refresh
           </button>
         </div>
+        {poolBytesTotal > 0 && (
+          <p
+            className={
+              poolBytesUsed >= poolBytesTotal
+                ? "message warning pool-usage"
+                : "message pool-usage"
+            }
+          >
+            Shared macro pool: {poolBytesUsed}/{poolBytesTotal} B used
+          </p>
+        )}
         {macros.map((macro) => (
           <button
             key={macro.index}
