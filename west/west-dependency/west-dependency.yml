@@ -6,5 +6,4 @@ manifest:
   projects:
     - name: zmk-feature-custom-settings
       url: https://github.com/cormoran/zmk-feature-custom-settings
-      # TODO: revert to main once cormoran/zmk-feature-custom-settings#31 merges
-      revision: codex/simplify-p4-descriptor
+      revision: main
