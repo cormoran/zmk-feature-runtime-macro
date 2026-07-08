@@ -4,7 +4,7 @@
 
 Runtime Macro is a ZMK module that lets you create and edit small macros at runtime through the unofficial custom ZMK Studio RPC protocol.
 
-Macros are **created and addressed by name** (e.g. `"hello"`, stored as the [zmk-feature-custom-settings](https://github.com/cormoran/zmk-feature-custom-settings) keyspace entry `macro/hello` under subsystem `cormoran__runtime_macro`). A keymap binding, however, only takes a **number**:
+Macros are **created, renamed, and deleted by name** (e.g. `"hello"`, stored as the [zmk-feature-custom-settings](https://github.com/cormoran/zmk-feature-custom-settings) keyspace entry `macro/hello` under subsystem `cormoran__runtime_macro`). Once created, a macro's steps are read and edited by **slot number**, not name - see the note on the operational RPCs below. A keymap binding also only takes a **number**:
 
 ```dts
 &rmacro 0
@@ -91,6 +91,8 @@ Open the Web UI from the ZMK Studio custom subsystem list, connect over serial, 
 Memory updates become pending custom setting changes; use **Save Pending** to persist all pending runtime macro changes, or **Discard Pending** to restore the saved values.
 
 Create/Delete/Rename go through zmk-feature-custom-settings' generic `CreateSetting`/`DeleteSetting` RPC (subsystem `cormoran_custom_settings`, key `macro/<name>`) rather than a runtime-macro-specific request - this module's own RPC only carries macro-domain operations (step-level editing, listing, playback-adjacent global settings) that the generic RPC can't express. A rename is a create-under-the-new-name followed by a delete-of-the-old-name, so a failure partway through never loses the macro's content.
+
+This module's own operational RPCs - `GetMacro`, `SetMacroStepCount`, `SetMacroStep`, and `AppendMacroStep` - address the macro to read or edit by its **slot number**, the same numeric value used for the keymap binding, not by name. Discover a macro's slot from the `ListMacros` response, or from the `slot` field the create/get response reports right after creating it; an unbound or out-of-range slot is rejected with a clear error rather than silently doing nothing.
 
 The runtime macro RPC also exposes `MacroGlobalSettings`, containing `tap_ms` and `max_entries`. The get request returns the whole global settings message so future global settings can be added together; writes are per key, such as `set_tap_ms`. `max_entries` is read-only and reports the configured maximum number of macros that can exist at once (`CONFIG_ZMK_RUNTIME_MACRO_COUNT`).
 
@@ -190,7 +192,7 @@ This module's macro storage was rebuilt on [zmk-feature-custom-settings](https:/
 
 - Previously-recorded macros (stored per numeric slot as `names.<i>` / `macros.<i>`) are **not migrated** and are silently dropped on upgrade - recreate your macros after flashing.
 - Macros are now created/deleted/renamed by **name**, not by a fixed slot index; a keymap binding's numeric parameter is now an assigned slot you look up after creating a macro, not a slot you write directly into.
-- The RPC protocol dropped `SetMacroName`/`DeleteMacro` (superseded by generic `CreateSetting`/`DeleteSetting`) and renamed some fields (`index` → `name`/`slot`, `max_macro` → `max_entries`, `MacroSlot` → `MacroDetail`) - regenerate any custom RPC client against the new `.proto`.
+- The RPC protocol dropped `SetMacroName`/`DeleteMacro` (superseded by generic `CreateSetting`/`DeleteSetting`), renamed some fields (`index` → `slot`, `max_macro` → `max_entries`, `MacroSlot` → `MacroDetail`), and addresses `GetMacro`/`SetMacroStepCount`/`SetMacroStep`/`AppendMacroStep` by `slot` (not `name`) - regenerate any custom RPC client against the new `.proto`.
 
 ## Development
 

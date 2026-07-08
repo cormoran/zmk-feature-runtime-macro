@@ -8,10 +8,18 @@ package cormoran.runtime_macro;
 // key "macro/<name>"). This subsystem only carries macro-domain operations
 // that the generic RPC cannot express: structured step-level editing, slot
 // resolution, and playback-adjacent global settings.
+//
+// Every operational RPC below (get/set-step-count/set-step/append-step)
+// addresses a macro by its `slot` number, not its name - the same numeric
+// index the keymap behavior binding uses to play it. A macro's slot is only
+// known for certain by reading its `slot` field from ListMacrosResponse or
+// MacroDetail (e.g. right after creating it via the generic CreateSetting
+// RPC). Renaming/creating/deleting a macro still goes through the
+// name-keyed generic CreateSetting/DeleteSetting RPC, unaffected by this.
 
 message ListMacrosRequest {}
 
-message GetMacroRequest { string name = 1; }
+message GetMacroRequest { uint32 slot = 1; }
 
 message GetMacroGlobalSettingsRequest {}
 
@@ -49,20 +57,20 @@ message MacroDetail {
 }
 
 message SetMacroStepCountRequest {
-    string name = 1;
+    uint32 slot = 1;
     uint32 step_count = 2;
     bool persist = 3;
 }
 
 message SetMacroStepRequest {
-    string name = 1;
+    uint32 slot = 1;
     uint32 step_index = 2;
     MacroStep step = 3;
     bool persist = 4;
 }
 
 message AppendMacroStepRequest {
-    string name = 1;
+    uint32 slot = 1;
     MacroStep step = 2;
     bool persist = 3;
 }

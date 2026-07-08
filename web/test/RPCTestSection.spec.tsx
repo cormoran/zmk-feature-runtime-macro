@@ -78,11 +78,14 @@ describe("RuntimeMacroEditor Component", () => {
             },
           });
         } else if (request.getMacro) {
+          // This mock only ever seeds slot 0 ("Test Macro" - see the
+          // listMacros response above), matching the RPC handler's
+          // slot-addressed GetMacroRequest.
           response = Response.create({
             getMacro: {
               macro: {
-                slot: 0,
-                name: request.getMacro.name,
+                slot: request.getMacro.slot,
+                name: "Test Macro",
                 steps: [],
                 encodedSize: 0,
               },

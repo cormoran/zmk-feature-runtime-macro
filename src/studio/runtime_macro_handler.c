@@ -405,17 +405,34 @@ static int handle_set_tap_ms(const cormoran_runtime_macro_SetTapMsRequest *req,
     return 0;
 }
 
-static int fill_macro_detail(const char *name, cormoran_runtime_macro_MacroDetail *detail) {
+/* Every operational RPC (get/set-step-count/set-step/append-step) addresses
+ * a macro by slot number; this resolves the slot to the name the underlying
+ * zmk_runtime_macro_read/write() module API still takes and, on failure,
+ * sets a slot-specific error message directly on `resp` (rather than letting
+ * the generic -ERANGE/-ENOENT dispatch at the bottom of
+ * runtime_macro_rpc_handle_request() run, since -ERANGE is ambiguous with
+ * unrelated step-index/step-count range checks in the same handlers).
+ * Returns -ERANGE if the slot is out of CONFIG_ZMK_RUNTIME_MACRO_COUNT
+ * range, -ENOENT if the slot is currently unbound (no live macro there). */
+static int resolve_slot_name(uint32_t slot, char *name, size_t name_capacity,
+                             cormoran_runtime_macro_Response *resp) {
+    int ret = zmk_runtime_macro_name_for_slot(slot, name, name_capacity);
+    if (ret == -ERANGE) {
+        set_error(resp, "Slot out of range");
+    } else if (ret == -ENOENT) {
+        set_error(resp, "No macro bound to that slot - create one first with CreateSetting "
+                        "(key \"macro/<name>\") on the cormoran_custom_settings subsystem, "
+                        "then read its assigned slot from the list/create response");
+    }
+    return ret;
+}
+
+static int fill_macro_detail(uint32_t slot, const char *name,
+                             cormoran_runtime_macro_MacroDetail *detail) {
     size_t encoded_size = 0;
     uint8_t encoded[CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES];
 
     int ret = zmk_runtime_macro_read(name, encoded, sizeof(encoded), &encoded_size);
-    if (ret < 0) {
-        return ret;
-    }
-
-    uint32_t slot = 0;
-    ret = zmk_runtime_macro_slot_for_name(name, &slot);
     if (ret < 0) {
         return ret;
     }
@@ -432,8 +449,14 @@ static int handle_get_macro(const cormoran_runtime_macro_GetMacroRequest *req,
     cormoran_runtime_macro_GetMacroResponse result =
         cormoran_runtime_macro_GetMacroResponse_init_zero;
 
+    char name[CONFIG_ZMK_RUNTIME_MACRO_NAME_MAX_LEN + 1];
+    int ret = resolve_slot_name(req->slot, name, sizeof(name), resp);
+    if (ret < 0) {
+        return ret;
+    }
+
     result.has_macro = true;
-    int ret = fill_macro_detail(req->name, &result.macro);
+    ret = fill_macro_detail(req->slot, name, &result.macro);
     if (ret < 0) {
         return ret;
     }
@@ -482,7 +505,13 @@ static int handle_set_macro_step_count(const cormoran_runtime_macro_SetMacroStep
         return -ERANGE;
     }
 
-    int ret = read_macro_steps(req->name, steps, &steps_count, ARRAY_SIZE(steps));
+    char name[CONFIG_ZMK_RUNTIME_MACRO_NAME_MAX_LEN + 1];
+    int ret = resolve_slot_name(req->slot, name, sizeof(name), resp);
+    if (ret < 0) {
+        return ret;
+    }
+
+    ret = read_macro_steps(name, steps, &steps_count, ARRAY_SIZE(steps));
     if (ret < 0) {
         return ret;
     }
@@ -495,14 +524,15 @@ static int handle_set_macro_step_count(const cormoran_runtime_macro_SetMacroStep
     }
     steps_count = req->step_count;
 
-    ret = write_macro_steps(req->name, steps, steps_count, req->persist);
+    ret = write_macro_steps(name, steps, steps_count, req->persist);
     if (ret < 0) {
         return ret;
     }
 
     cormoran_runtime_macro_StatusResponse result = cormoran_runtime_macro_StatusResponse_init_zero;
     result.affected_count = 1;
-    snprintf(result.message, sizeof(result.message), "Macro \"%s\" step count updated", req->name);
+    snprintf(result.message, sizeof(result.message), "Macro \"%s\" (slot %u) step count updated",
+             name, req->slot);
 
     resp->which_response_type = cormoran_runtime_macro_Response_status_tag;
     resp->response_type.status = result;
@@ -519,7 +549,13 @@ static int handle_set_macro_step(const cormoran_runtime_macro_SetMacroStepReques
         return -EINVAL;
     }
 
-    int ret = read_macro_steps(req->name, steps, &steps_count, ARRAY_SIZE(steps));
+    char name[CONFIG_ZMK_RUNTIME_MACRO_NAME_MAX_LEN + 1];
+    int ret = resolve_slot_name(req->slot, name, sizeof(name), resp);
+    if (ret < 0) {
+        return ret;
+    }
+
+    ret = read_macro_steps(name, steps, &steps_count, ARRAY_SIZE(steps));
     if (ret < 0) {
         return ret;
     }
@@ -529,15 +565,15 @@ static int handle_set_macro_step(const cormoran_runtime_macro_SetMacroStepReques
     }
 
     steps[req->step_index] = req->step;
-    ret = write_macro_steps(req->name, steps, steps_count, req->persist);
+    ret = write_macro_steps(name, steps, steps_count, req->persist);
     if (ret < 0) {
         return ret;
     }
 
     cormoran_runtime_macro_StatusResponse result = cormoran_runtime_macro_StatusResponse_init_zero;
     result.affected_count = 1;
-    snprintf(result.message, sizeof(result.message), "Macro \"%s\" step %u updated", req->name,
-             req->step_index);
+    snprintf(result.message, sizeof(result.message), "Macro \"%s\" (slot %u) step %u updated", name,
+             req->slot, req->step_index);
 
     resp->which_response_type = cormoran_runtime_macro_Response_status_tag;
     resp->response_type.status = result;
@@ -554,7 +590,13 @@ static int handle_append_macro_step(const cormoran_runtime_macro_AppendMacroStep
         return -EINVAL;
     }
 
-    int ret = read_macro_steps(req->name, steps, &steps_count, ARRAY_SIZE(steps));
+    char name[CONFIG_ZMK_RUNTIME_MACRO_NAME_MAX_LEN + 1];
+    int ret = resolve_slot_name(req->slot, name, sizeof(name), resp);
+    if (ret < 0) {
+        return ret;
+    }
+
+    ret = read_macro_steps(name, steps, &steps_count, ARRAY_SIZE(steps));
     if (ret < 0) {
         return ret;
     }
@@ -564,14 +606,15 @@ static int handle_append_macro_step(const cormoran_runtime_macro_AppendMacroStep
     }
 
     steps[steps_count++] = req->step;
-    ret = write_macro_steps(req->name, steps, steps_count, req->persist);
+    ret = write_macro_steps(name, steps, steps_count, req->persist);
     if (ret < 0) {
         return ret;
     }
 
     cormoran_runtime_macro_StatusResponse result = cormoran_runtime_macro_StatusResponse_init_zero;
     result.affected_count = steps_count;
-    snprintf(result.message, sizeof(result.message), "Macro \"%s\" step appended", req->name);
+    snprintf(result.message, sizeof(result.message), "Macro \"%s\" (slot %u) step appended", name,
+             req->slot);
 
     resp->which_response_type = cormoran_runtime_macro_Response_status_tag;
     resp->response_type.status = result;
@@ -665,16 +708,23 @@ static bool runtime_macro_rpc_handle_request(const zmk_custom_CallRequest *raw_r
         break;
     }
 
-    if (ret < 0) {
-        /* -ENOSPC from a body write means the shared name+body pool
-         * (CONFIG_ZMK_RUNTIME_MACRO_POOL_BYTES) is exhausted - give a clear,
-         * actionable message instead of the generic errno text; every other
-         * failure keeps the generic format. */
+    if (ret < 0 && resp->which_response_type != cormoran_runtime_macro_Response_error_tag) {
+        /* resolve_slot_name() already sets a slot-specific error directly on
+         * `resp` for its own -ERANGE/-ENOENT (see its doc comment) - the
+         * guard above avoids clobbering that with the generic messages
+         * below, which cover errors from everything else (e.g. -ENOENT from
+         * a raw name-keyed module call, or -ERANGE from an out-of-bounds
+         * step_index/step_count that has nothing to do with slot
+         * resolution). -ENOSPC from a body write means the shared
+         * name+body pool (CONFIG_ZMK_RUNTIME_MACRO_POOL_BYTES) is exhausted -
+         * give a clear, actionable message instead of the generic errno
+         * text; every other failure keeps the generic format. */
         if (ret == -ENOSPC) {
             set_error(resp, "Macro pool full: delete or shrink another macro");
         } else if (ret == -ENOENT) {
-            set_error(resp, "No macro with that name - create it first with CreateSetting "
-                            "(key \"macro/<name>\") on the cormoran_custom_settings subsystem");
+            set_error(resp, "No macro bound to that slot - create one first with CreateSetting "
+                            "(key \"macro/<name>\") on the cormoran_custom_settings subsystem, "
+                            "then read its assigned slot from the list/create response");
         } else {
             set_errno_error(resp, "Runtime macro RPC", ret);
         }

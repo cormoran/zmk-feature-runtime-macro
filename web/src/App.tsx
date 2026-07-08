@@ -194,16 +194,16 @@ export function RuntimeMacroEditor() {
   );
 
   const loadMacro = useCallback(
-    async (name: string, keyPressId = keyPressBehaviorId) => {
+    async (slot: number, keyPressId = keyPressBehaviorId) => {
       setIsLoading(true);
       setMessage(null);
       try {
-        const response = await callRPC(Request.create({ getMacro: { name } }));
+        const response = await callRPC(Request.create({ getMacro: { slot } }));
         const macro = response.getMacro?.macro;
         if (!macro) throw new Error("Macro was missing from RPC response");
 
         const steps = macro.steps.map(runtimeStepFromRpc);
-        setSelectedName(name);
+        setSelectedName(macro.name);
         setLoadedMacro({ slot: macro.slot, name: macro.name, steps });
         setRenameTo(macro.name);
         setJsonText(
@@ -251,7 +251,7 @@ export function RuntimeMacroEditor() {
       if (list.length > 0) {
         const stillSelected = list.find((m) => m.name === selectedName);
         await loadMacro(
-          (stillSelected ?? list[0]).name,
+          (stillSelected ?? list[0]).slot,
           nextKeyPressBehaviorId
         );
       } else {
@@ -336,7 +336,7 @@ export function RuntimeMacroEditor() {
       await callRPC(
         Request.create({
           setMacroStepCount: {
-            name: loadedMacro.name,
+            slot: loadedMacro.slot,
             stepCount: rpcSteps.length,
             persist,
           },
@@ -346,7 +346,7 @@ export function RuntimeMacroEditor() {
         await callRPC(
           Request.create({
             setMacroStep: {
-              name: loadedMacro.name,
+              slot: loadedMacro.slot,
               stepIndex,
               step: runtimeStepToRpc(step),
               persist,
@@ -599,7 +599,7 @@ export function RuntimeMacroEditor() {
             className={
               macro.name === selectedName ? "macro-row selected" : "macro-row"
             }
-            onClick={() => loadMacro(macro.name)}
+            onClick={() => loadMacro(macro.slot)}
           >
             <span>{macro.name || `(unnamed slot ${macro.slot})`}</span>
             <small>

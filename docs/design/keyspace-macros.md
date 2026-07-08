@@ -71,19 +71,35 @@ ZMK_CUSTOM_SETTING_KEYSPACE_DEFINE_WITH_POOL_SIZE(
 
 ## 3. RPC/proto redesign
 
-Everything macro-identifying now carries a `name` (string) instead of an
-`index` (uint32), and list/get responses add a `slot` (uint32) field so
-clients can learn/display the slot-to-bind. Dropped in favor of the generic
-custom-settings RPC: `SetMacroNameRequest`, `DeleteMacroRequest` (tags 3 and
-8, `reserved`). Kept, retargeted to `name`: `GetMacroRequest`,
-`SetMacroStepCountRequest`, `SetMacroStepRequest`. Added:
-`AppendMacroStepRequest` (append one step without a separate get-count
-round trip - a small ergonomic win the design brief invited). `MacroSlot`
-was renamed `MacroDetail` (a "slot" is now a resolved *property* of a
-macro, not its primary identity, so naming the whole detail message after
-it was confusing). `MacroGlobalSettings.max_macro` was renamed
-`max_entries` to describe what it actually bounds post-keyspace (concurrent
-macro count, independent of the byte pool).
+Create/delete/rename carry a `name` (string), through the generic
+custom-settings RPC. Dropped in favor of that generic RPC:
+`SetMacroNameRequest`, `DeleteMacroRequest` (tags 3 and 8, `reserved`).
+
+Every other, operational RPC addresses a macro by its **slot number**
+(uint32), not name - the same numeric index the keymap behavior binding uses
+to play it: `GetMacroRequest`, `SetMacroStepCountRequest`,
+`SetMacroStepRequest`, and the newly added `AppendMacroStepRequest` (append
+one step without a separate get-count round trip - a small ergonomic win the
+design brief invited) all carry `slot`. This was an explicit, late owner
+direction: keep addressing a macro by slot number in the RPC rather than by
+name, everywhere except the generic create/delete/rename flow. An earlier
+revision of this design retargeted these four RPCs to `name` for symmetry
+with create/delete/rename, but that left two parallel addressing schemes for
+what is, from a client's point of view, one identifier - the keymap binding
+resolves name -> slot once at bind time, while the RPC layer resolved by
+name again on every edit. Addressing by slot everywhere except
+create/delete/rename keeps exactly one resolution step (discover the slot
+once, from the list/create response) instead of two; the firmware handler
+still resolves slot -> name internally (`zmk_runtime_macro_name_for_slot`)
+since the module's storage API (`zmk_runtime_macro_read`/`_write`) is
+name-keyed. `list_macros`/`get_macro` responses (`MacroSummary`/
+`MacroDetail`) report both `slot` and `name` so a client can display a
+friendly name while addressing by slot. `MacroSlot` was renamed
+`MacroDetail` (a "slot" is now a resolved *property* of a macro, not its
+primary identity, so naming the whole detail message after it was
+confusing). `MacroGlobalSettings.max_macro` was renamed `max_entries` to
+describe what it actually bounds post-keyspace (concurrent macro count,
+independent of the byte pool).
 
 The Web UI now creates/deletes/renames macros via
 `cormoran_custom_settings`' generic `CreateSetting`/`DeleteSetting` RPC
@@ -221,10 +237,13 @@ generic RPC handler's own list/save/discard scope-application passes), so
   (unchanged signature) since that's the keymap behavior's own contract.
   New: `_create`, `_delete`, `_rename`, `_name_for_slot`, `_slot_for_name`,
   `_for_each`.
-- **RPC/proto**: see §3. `SetMacroName`/`DeleteMacro` removed;
-  `index` renamed `name` (string) throughout; `MacroSlot` renamed
-  `MacroDetail`; `max_macro` renamed `max_entries`; `slot` (uint32) added
-  to list/get responses; `AppendMacroStepRequest` added.
+- **RPC/proto**: see §3. `SetMacroName`/`DeleteMacro` removed (superseded by
+  generic `CreateSetting`/`DeleteSetting`); `MacroSlot` renamed
+  `MacroDetail`; `max_macro` renamed `max_entries`; `GetMacroRequest`,
+  `SetMacroStepCountRequest`, `SetMacroStepRequest`, and the newly added
+  `AppendMacroStepRequest` all carry `slot` (uint32), not `name`; `slot`
+  (uint32) is also added to `MacroSummary`/`MacroDetail` (list/get
+  responses) alongside the existing `name`.
 - **Devicetree binding**: `cormoran,runtime-macro-default`'s `slot`
   property is removed (a keyspace entry's slot is assigned at create time,
   not chosen); `display-name` is renamed `macro-name`.

@@ -548,6 +548,89 @@ static int test_tap_ms_persist_discard(void) {
     return 0;
 }
 
+/*
+ * The four operational Studio RPCs (get/set-step-count/set-step/append-step
+ * in src/studio/runtime_macro_handler.c) address a macro by slot number, not
+ * name: the handler resolves slot -> name via zmk_runtime_macro_name_for_slot()
+ * once and then calls the same name-keyed zmk_runtime_macro_write()/read()
+ * this test file already exercises everywhere else - see that function's
+ * resolve_slot_name() helper. This test proves that resolution path end to
+ * end: after creating a macro by name and noting its assigned slot (exactly
+ * how a client is expected to discover it, from the create/list response),
+ * every subsequent operation below uses ONLY the slot - the name is never
+ * referenced again - then also exercises the two slot-resolution failure
+ * modes the handler surfaces as distinct RPC errors: an unbound (freed)
+ * in-range slot (-ENOENT: "no macro at that slot") and an out-of-range slot
+ * (-ERANGE: "slot out of range").
+ */
+static int test_slot_addressing(void) {
+    uint8_t initial_body[] = {ZMK_RUNTIME_MACRO_FORMAT_VERSION};
+
+    uint32_t slot = 0;
+    int ret = zmk_runtime_macro_create("Slot Addressed", initial_body, sizeof(initial_body),
+                                       ZMK_CUSTOM_SETTING_WRITE_MODE_MEMORY, &slot);
+    if (ret < 0) {
+        LOG_ERR("Slot-addressing create failed: %d", ret);
+        return ret;
+    }
+
+    /* From here on only `slot` is used - mirroring the RPC handler's
+     * resolve-then-call-by-name pattern. */
+    char name[CONFIG_ZMK_RUNTIME_MACRO_NAME_MAX_LEN + 1];
+    ret = zmk_runtime_macro_name_for_slot(slot, name, sizeof(name));
+    if (ret < 0 || strcmp(name, "Slot Addressed") != 0) {
+        LOG_ERR("Slot -> name resolution failed: ret=%d name=%s", ret, name);
+        return -EINVAL;
+    }
+
+    uint8_t new_body[8];
+    size_t new_body_size = build_delay_padding_body(new_body, sizeof(new_body));
+    ret = zmk_runtime_macro_write(name, new_body, new_body_size,
+                                  ZMK_CUSTOM_SETTING_WRITE_MODE_MEMORY);
+    if (ret < 0) {
+        LOG_ERR("Slot-resolved write failed: %d", ret);
+        return ret;
+    }
+
+    uint8_t read_back[sizeof(new_body)];
+    size_t read_size = 0;
+    ret = zmk_runtime_macro_read(name, read_back, sizeof(read_back), &read_size);
+    if (ret < 0 || read_size != new_body_size || memcmp(read_back, new_body, new_body_size) != 0) {
+        LOG_ERR("Slot-resolved read-back mismatch: ret=%d size=%zu", ret, read_size);
+        return -EINVAL;
+    }
+
+    LOG_INF("PASS: runtime_macro_slot_addressing_round_trip");
+
+    /* Unbound (freed) in-range slot: resolving it must fail with -ENOENT,
+     * the error the handler maps to "no macro bound to that slot". */
+    ret = zmk_runtime_macro_delete(name);
+    if (ret < 0) {
+        LOG_ERR("Delete before unbound-slot check failed: %d", ret);
+        return ret;
+    }
+    char stale_name[CONFIG_ZMK_RUNTIME_MACRO_NAME_MAX_LEN + 1];
+    ret = zmk_runtime_macro_name_for_slot(slot, stale_name, sizeof(stale_name));
+    if (ret != -ENOENT) {
+        LOG_ERR("Resolving a freed slot returned %d, expected -ENOENT", ret);
+        return -EINVAL;
+    }
+    LOG_INF("PASS: runtime_macro_slot_addressing_unbound_slot_rejected");
+
+    /* Out-of-range slot (>= CONFIG_ZMK_RUNTIME_MACRO_COUNT): must fail with
+     * -ERANGE, distinctly from the unbound-but-in-range -ENOENT case above -
+     * the handler surfaces both as distinct, clear RPC errors. */
+    ret = zmk_runtime_macro_name_for_slot(CONFIG_ZMK_RUNTIME_MACRO_COUNT, stale_name,
+                                          sizeof(stale_name));
+    if (ret != -ERANGE) {
+        LOG_ERR("Resolving an out-of-range slot returned %d, expected -ERANGE", ret);
+        return -EINVAL;
+    }
+    LOG_INF("PASS: runtime_macro_slot_addressing_out_of_range_rejected");
+
+    return 0;
+}
+
 static int runtime_macro_test_init(void) {
     int ret = test_settings_backend_init();
     if (ret < 0) {
@@ -586,6 +669,11 @@ static int runtime_macro_test_init(void) {
     }
 
     ret = test_tap_ms_persist_discard();
+    if (ret < 0) {
+        return ret;
+    }
+
+    ret = test_slot_addressing();
     if (ret < 0) {
         return ret;
     }
