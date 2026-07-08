@@ -1,5 +1,11 @@
 # Design: relax the per-macro size limit — shared large-value pool across slots
 
+> **Superseded** by [`keyspace-macros.md`](keyspace-macros.md): the fixed-slot
+> `names.<i>`/`macros.<i>` storage and shared pool described below were
+> rebuilt on zmk-feature-custom-settings' keyspace feature (named macros,
+> RPC-creatable, no more fixed LISTIFY slots). This document is kept for
+> historical context only; do not use it as a guide to the current design.
+
 **Status:** design only — implementation to be done by follow-up (Sonnet) sessions.
 **Author:** design worked out 2026-07-06/07 (v3).
 **Scope:** two parts. **Part A** is an *upstream* extension to

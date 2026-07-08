@@ -11,17 +11,36 @@ config ZMK_RUNTIME_MACRO_STUDIO_RPC
     select ZMK_CUSTOM_SETTINGS_STUDIO_RPC
 
 config ZMK_RUNTIME_MACRO_COUNT
-    int "Maximum runtime macro slots"
+    int "Maximum concurrently existing runtime macros"
     default 8
     range 1 16
+    help
+      Bounds the runtime_macros keyspace's max_entries: how many named
+      macros can exist at once (not a byte budget - see
+      ZMK_RUNTIME_MACRO_POOL_BYTES for that). Each keymap binding targets a
+      macro by its keyspace slot index (0..COUNT-1); use the Web UI/RPC
+      macro list to see which slot a given name is currently bound to.
+
+config ZMK_RUNTIME_MACRO_NAME_MAX_LEN
+    int "Maximum runtime macro name length (bytes, excluding NUL)"
+    default 24
+    range 1 32
+    help
+      A macro's name is its keyspace entry key (stored as "macro/<name>").
+      This bounds the name portion only; the "macro/" prefix and NUL
+      terminator are accounted for separately and must still fit within
+      ZMK_CUSTOM_SETTINGS_KEY_MAX_LEN.
 
 config ZMK_RUNTIME_MACRO_POOL_BYTES
-    int "Shared runtime macro body pool size (bytes)"
+    int "Shared runtime macro name+body pool size (bytes)"
     default 1024
     help
-      Total bytes shared by all macro bodies. This is the only resident RAM
-      added for large-macro support. The sum of all encoded bodies must fit;
-      any single macro may use up to ZMK_RUNTIME_MACRO_MAX_BYTES.
+      Total bytes shared by every macro's opaque [name][body] keyspace
+      entry. This is the only resident RAM added for large-macro support:
+      an empty/short macro costs almost nothing, and the budget can be
+      smaller than COUNT * MAX_BYTES worst case - it just means fewer
+      simultaneous large macros. create()/write() return -ENOSPC (surfaced
+      as "pool full" over RPC) once the budget is exhausted.
 
 config ZMK_RUNTIME_MACRO_MAX_BYTES
     int "Maximum encoded bytes per runtime macro"

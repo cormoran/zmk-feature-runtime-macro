@@ -2,21 +2,26 @@
 # SPDX-License-Identifier: MIT
 
 description: |
-  Compile-time default value for a runtime macro slot. Installed as the
-  slot's custom-setting default at boot, so it behaves like a factory value:
-  visible and editable in the Web UI, restored by Discard Pending / Reset /
-  settings erase, and shadowed by any value the user writes over RPC.
+  Compile-time default macro, seeded into the runtime macro keyspace the
+  first time settings load and no live macro already has this name - so it
+  behaves like a factory value: visible and editable in the Web UI, and
+  re-seeded (not overwritten) if a user Delete removes it, since the seed is
+  never persisted itself. To remove a devicetree default permanently, delete
+  this node instead. A macro's keyspace slot index is assigned when it is
+  first created (not by devicetree order) - check the Web UI/RPC macro list
+  after flashing to learn which slot number to bind in your keymap
+  (`&rmacro <slot>`).
 
 compatible: "cormoran,runtime-macro-default"
 
 properties:
-  slot:
-    type: int
-    required: true
-    description: Target runtime macro slot index (0-based).
-  display-name:
+  macro-name:
     type: string
-    description: Display name shown in the Web UI. Defaults to the node name.
+    description: >
+      The macro's name (its keyspace key, "macro/<name>"). Defaults to the
+      node name. Must be unique among runtime macros. (Named `macro-name`,
+      not `name` - devicetree reserves a bare `name` property for legacy
+      node-name mirroring and dtc rejects any other value for it.)
   text:
     type: string
     description: >

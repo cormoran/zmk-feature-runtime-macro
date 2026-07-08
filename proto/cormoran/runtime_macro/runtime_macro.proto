@@ -2,14 +2,21 @@ syntax = "proto3";
 
 package cormoran.runtime_macro;
 
+// Raw create/delete/rename of a macro entry is intentionally NOT duplicated
+// here: it is already covered by the generic zmk-feature-custom-settings
+// Studio RPC (CreateSetting/DeleteSetting, subsystem "cormoran__runtime_macro",
+// key "macro/<name>"). This subsystem only carries macro-domain operations
+// that the generic RPC cannot express: structured step-level editing, slot
+// resolution, and playback-adjacent global settings.
+
 message ListMacrosRequest {}
 
-message GetMacroRequest { uint32 index = 1; }
+message GetMacroRequest { string name = 1; }
 
 message GetMacroGlobalSettingsRequest {}
 
 message MacroSummary {
-    uint32 index = 1;
+    uint32 slot = 1;
     string name = 2;
     uint32 encoded_size = 3;
 }
@@ -34,39 +41,34 @@ message MacroStep {
     }
 }
 
-message MacroSlot {
-    uint32 index = 1;
+message MacroDetail {
+    uint32 slot = 1;
     string name = 2;
     repeated MacroStep steps = 3;
     uint32 encoded_size = 4;
 }
 
-message SetMacroNameRequest {
-    uint32 index = 1;
-    string name = 2;
-    bool persist = 3;
-}
-
 message SetMacroStepCountRequest {
-    uint32 index = 1;
+    string name = 1;
     uint32 step_count = 2;
     bool persist = 3;
 }
 
 message SetMacroStepRequest {
-    uint32 index = 1;
+    string name = 1;
     uint32 step_index = 2;
     MacroStep step = 3;
     bool persist = 4;
 }
 
-message SetTapMsRequest {
-    uint32 tap_ms = 1;
-    bool persist = 2;
+message AppendMacroStepRequest {
+    string name = 1;
+    MacroStep step = 2;
+    bool persist = 3;
 }
 
-message DeleteMacroRequest {
-    uint32 index = 1;
+message SetTapMsRequest {
+    uint32 tap_ms = 1;
     bool persist = 2;
 }
 
@@ -75,17 +77,18 @@ message SaveMacrosRequest {}
 message DiscardMacrosRequest {}
 
 message Request {
+    reserved 3,
+        8; // formerly set_macro_name, delete_macro - see generic CreateSetting/DeleteSetting
     oneof request_type {
         ListMacrosRequest list_macros = 1;
         GetMacroRequest get_macro = 2;
-        SetMacroNameRequest set_macro_name = 3;
         SetMacroStepCountRequest set_macro_step_count = 4;
         GetMacroGlobalSettingsRequest get_macro_global_settings = 5;
         SetTapMsRequest set_tap_ms = 6;
         SetMacroStepRequest set_macro_step = 7;
-        DeleteMacroRequest delete_macro = 8;
         SaveMacrosRequest save_macros = 9;
         DiscardMacrosRequest discard_macros = 10;
+        AppendMacroStepRequest append_macro_step = 11;
     }
 }
 
@@ -102,14 +105,14 @@ message ListMacrosResponse {
     uint32 max_name_length = 3;
 }
 
-message GetMacroResponse { MacroSlot macro = 1; }
+message GetMacroResponse { MacroDetail macro = 1; }
 
 message MacroGlobalSettings {
     uint32 tap_ms = 1;
-    uint32 max_macro = 2;
+    uint32 max_entries = 2;
     uint32 key_press_behavior_id = 3;
-    // Shared macro-body pool budget (CONFIG_ZMK_RUNTIME_MACRO_POOL_BYTES) and
-    // the bytes currently occupied by all slots' bodies combined.
+    // Shared macro name+body pool budget (CONFIG_ZMK_RUNTIME_MACRO_POOL_BYTES)
+    // and the bytes currently occupied by every macro combined.
     uint32 pool_bytes_total = 4;
     uint32 pool_bytes_used = 5;
 }

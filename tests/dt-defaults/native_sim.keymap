@@ -7,15 +7,13 @@
 	runtime_macro_defaults {
 		rmacro_default_0 {
 			compatible = "cormoran,runtime-macro-default";
-			slot = <0>;
-			display-name = "Hi";
+			macro-name = "Hi";
 			text = "hi";
 		};
 
 		rmacro_default_1 {
 			compatible = "cormoran,runtime-macro-default";
-			slot = <1>;
-			display-name = "Bindings";
+			macro-name = "Bindings";
 			bindings = <&macro_press &kp LSHFT>
 				 , <&macro_tap &kp A>
 				 , <&macro_release &kp LSHFT>
@@ -23,18 +21,16 @@
 				 , <&macro_tap &kp B>;
 		};
 
-		/* Encodes to well over the 64-byte carrier zmk_custom_setting_set_default()
-		 * accepts (v1 limitation, see docs/design/large-macros-shared-pool.md
-		 * §B.5 and cormoran/zmk-feature-custom-settings#27): this default must
-		 * be skipped with a clear log at boot, without crashing and without
-		 * preventing slots 0/1's defaults from installing. Runtime-written
-		 * macros are not subject to this 64-byte limit (see
-		 * CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES). */
+		/* Encodes to well over CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES (256 by
+		 * default, see tests/dt-defaults/native_sim.conf): install_one_default's
+		 * own fixed-size encode buffer runs out of room mid-encode. This must be
+		 * skipped with a clear log at boot, without crashing and without
+		 * preventing the other defaults (already declared above) from
+		 * installing. */
 		rmacro_default_2 {
 			compatible = "cormoran,runtime-macro-default";
-			slot = <2>;
-			display-name = "Oversized";
-			text = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+			macro-name = "Oversized";
+			text = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 		};
 	};
 
