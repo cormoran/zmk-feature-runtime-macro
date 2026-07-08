@@ -42,6 +42,14 @@ const PACKED_USAGE_MASK = 0x7f;
 const PACKED_MIN_USAGE = 0x04;
 const PACKED_MAX_USAGE = 0x38;
 
+// Matches the firmware proto's `KeyTapSequenceStep.packed_keys max_size:64`
+// (see proto/cormoran/runtime_macro/runtime_macro.options) - a single RPC
+// step can carry at most this many packed keys, independent of how many
+// steps a macro's overall byte budget (CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES)
+// allows. A longer run of packable taps/text is split into consecutive
+// keySequence steps of at most this length.
+const MAX_PACKED_KEYS_PER_STEP = 64;
+
 function assertUint32(value: number, label: string): number {
   if (!Number.isInteger(value) || value < 0 || value > 0xffffffff) {
     throw new Error(`${label} must be an unsigned 32-bit integer`);
@@ -155,7 +163,21 @@ export function compactKeyTapSteps(
   const compacted: RuntimeMacroStep[] = [];
   let packedBuffer: number[] = [];
 
+  // Emit as many full MAX_PACKED_KEYS_PER_STEP-sized chunks as are currently
+  // available, leaving any remainder (< the limit) in packedBuffer for more
+  // keys to accumulate into or for flushPacked() to emit as-is at a boundary.
+  const flushFullChunks = () => {
+    while (packedBuffer.length >= MAX_PACKED_KEYS_PER_STEP) {
+      compacted.push({
+        action: "keySequence",
+        packedKeys: packedBuffer.slice(0, MAX_PACKED_KEYS_PER_STEP),
+      });
+      packedBuffer = packedBuffer.slice(MAX_PACKED_KEYS_PER_STEP);
+    }
+  };
+
   const flushPacked = () => {
+    flushFullChunks();
     if (packedBuffer.length > 0) {
       compacted.push({ action: "keySequence", packedKeys: packedBuffer });
       packedBuffer = [];
@@ -166,12 +188,14 @@ export function compactKeyTapSteps(
     if (step.action === "keySequence") {
       for (const packedKey of step.packedKeys) unpackKeyTap(packedKey);
       packedBuffer.push(...step.packedKeys);
+      flushFullChunks();
       continue;
     }
 
     const packedKey = packedTapKey(step, options);
     if (packedKey !== null) {
       packedBuffer.push(packedKey);
+      flushFullChunks();
       continue;
     }
 

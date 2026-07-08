@@ -8,12 +8,14 @@
 
 #include <errno.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <string.h>
 
 #include <zephyr/device.h>
 #include <zephyr/init.h>
 #include <zephyr/kernel.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/settings/settings.h>
 #include <zephyr/sys/util.h>
 
 #include <drivers/behavior.h>
@@ -31,9 +33,7 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
 #define RUNTIME_MACRO_DEFAULT_ASSERT_HAS_CONTENT(n)                                                \
     BUILD_ASSERT(DT_NODE_HAS_PROP(n, text) || DT_NODE_HAS_PROP(n, bindings),                       \
-                 "cormoran,runtime-macro-default node must set `text` and/or `bindings`");         \
-    BUILD_ASSERT(DT_PROP(n, slot) < CONFIG_ZMK_RUNTIME_MACRO_COUNT,                                \
-                 "cormoran,runtime-macro-default `slot` is out of range");
+                 "cormoran,runtime-macro-default node must set `text` and/or `bindings`");
 
 DT_FOREACH_STATUS_OKAY(cormoran_runtime_macro_default, RUNTIME_MACRO_DEFAULT_ASSERT_HAS_CONTENT)
 
@@ -69,8 +69,7 @@ DT_FOREACH_STATUS_OKAY(cormoran_runtime_macro_default, RUNTIME_MACRO_DEFAULT_ASS
 #endif
 
 struct runtime_macro_default_config {
-    uint32_t slot;
-    const char *display_name;
+    const char *name;
     const char *text;
     uint32_t wait_ms;
     const struct zmk_behavior_binding *bindings;
@@ -89,8 +88,7 @@ struct runtime_macro_default_config {
 #define RUNTIME_MACRO_DEFAULT_INST(n)                                                              \
     RUNTIME_MACRO_DEFAULT_BINDINGS_ARRAY(n)                                                        \
     static const struct runtime_macro_default_config runtime_macro_default_config_##n = {          \
-        .slot = DT_PROP(n, slot),                                                                  \
-        .display_name = DT_PROP_OR(n, display_name, DT_NODE_FULL_NAME(n)),                         \
+        .name = DT_PROP_OR(n, macro_name, DT_NODE_FULL_NAME(n)),                                   \
         .text = DT_PROP_OR(n, text, NULL),                                                         \
         .wait_ms = DT_PROP_OR(n, wait_ms, 0),                                                      \
         .bindings = COND_CODE_1(DT_NODE_HAS_PROP(n, bindings),                                     \
@@ -107,13 +105,6 @@ static const struct runtime_macro_default_config *runtime_macro_default_configs[
 
 #define RUNTIME_MACRO_DEFAULT_COUNT ARRAY_SIZE(runtime_macro_default_configs)
 
-/* Owned by this file, outlives the settings registry: zmk_custom_setting_set_default() only
- * stores a pointer, it does not copy. */
-static struct zmk_custom_setting_value
-    runtime_macro_default_body_values[RUNTIME_MACRO_DEFAULT_COUNT];
-static struct zmk_custom_setting_value
-    runtime_macro_default_name_values[RUNTIME_MACRO_DEFAULT_COUNT];
-
 enum runtime_macro_default_step_mode {
     RUNTIME_MACRO_DEFAULT_MODE_TAP,
     RUNTIME_MACRO_DEFAULT_MODE_PRESS,
@@ -124,7 +115,7 @@ struct runtime_macro_encode_state {
     uint8_t *buf;
     size_t capacity;
     size_t size;
-    uint8_t pending_packed[CONFIG_ZMK_CUSTOM_SETTINGS_VALUE_MAX_SIZE];
+    uint8_t pending_packed[CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES];
     size_t pending_packed_count;
 };
 
@@ -475,15 +466,8 @@ static int encode_bindings(struct runtime_macro_encode_state *s,
     return 0;
 }
 
-static int install_one_default(size_t storage_idx, const struct runtime_macro_default_config *cfg,
-                               bool *slot_used) {
-    if (slot_used[cfg->slot]) {
-        LOG_ERR("Runtime macro default: slot %u already has a default, ignoring duplicate",
-                cfg->slot);
-        return -EALREADY;
-    }
-
-    uint8_t encoded[CONFIG_ZMK_CUSTOM_SETTINGS_VALUE_MAX_SIZE];
+static int install_one_default(const struct runtime_macro_default_config *cfg) {
+    uint8_t encoded[CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES];
     struct runtime_macro_encode_state state = {
         .buf = encoded,
         .capacity = sizeof(encoded),
@@ -518,64 +502,55 @@ static int install_one_default(size_t storage_idx, const struct runtime_macro_de
         goto encode_failed;
     }
 
-    const struct zmk_custom_setting *body_setting = zmk_custom_setting_find_array_element(
-        ZMK_RUNTIME_MACRO_SUBSYSTEM_ID, ZMK_RUNTIME_MACRO_BODIES_KEY, cfg->slot);
-    const struct zmk_custom_setting *name_setting = zmk_custom_setting_find_array_element(
-        ZMK_RUNTIME_MACRO_SUBSYSTEM_ID, ZMK_RUNTIME_MACRO_NAMES_KEY, cfg->slot);
-    if (!body_setting || !name_setting) {
-        LOG_ERR("Runtime macro default: slot %u setting not registered", cfg->slot);
-        return -ENODEV;
+    /* Seed-if-absent: never overwrite a macro that already exists (a
+     * persisted user entry with the same name, or - across a reboot without
+     * settings persistence - a DT default this same function already
+     * created earlier in this loop). MEMORY mode, so a user Delete of a DT
+     * default is a per-session-only removal - it comes back next boot,
+     * exactly like a factory default. To remove a DT default permanently,
+     * remove it from the devicetree. */
+    ret = zmk_runtime_macro_create(cfg->name, state.buf, state.size,
+                                   ZMK_CUSTOM_SETTING_WRITE_MODE_MEMORY, NULL);
+    if (ret == -EEXIST) {
+        LOG_DBG("Runtime macro default: \"%s\" already exists, not overwriting", cfg->name);
+        return 0;
     }
-
-    struct zmk_custom_setting_value *body_value = &runtime_macro_default_body_values[storage_idx];
-    body_value->type = ZMK_CUSTOM_SETTING_VALUE_TYPE_BYTES;
-    body_value->size = state.size;
-    memcpy(body_value->bytes_value, state.buf, state.size);
-
-    struct zmk_custom_setting_value *name_value = &runtime_macro_default_name_values[storage_idx];
-    name_value->type = ZMK_CUSTOM_SETTING_VALUE_TYPE_STRING;
-    size_t name_len = strlen(cfg->display_name);
-    name_value->size = MIN(name_len, CONFIG_ZMK_CUSTOM_SETTINGS_VALUE_MAX_SIZE);
-    memcpy(name_value->string_value, cfg->display_name, name_value->size);
-    name_value->string_value[name_value->size] = '\0';
-
-    ret = zmk_custom_setting_set_default(body_setting, body_value);
     if (ret < 0) {
-        LOG_ERR("Runtime macro default: slot %u body default rejected: %d", cfg->slot, ret);
-        return ret;
-    }
-    ret = zmk_custom_setting_set_default(name_setting, name_value);
-    if (ret < 0) {
-        LOG_ERR("Runtime macro default: slot %u name default rejected: %d", cfg->slot, ret);
+        LOG_ERR("Runtime macro default: \"%s\" failed to install: %d", cfg->name, ret);
         return ret;
     }
 
-    slot_used[cfg->slot] = true;
+    LOG_DBG("Runtime macro default: installed \"%s\" (%u bytes)", cfg->name, (unsigned)state.size);
     return 0;
 
 encode_failed:
-    LOG_ERR("Runtime macro default: slot %u failed to encode: %d", cfg->slot, ret);
+    LOG_ERR("Runtime macro default: \"%s\" failed to encode: %d", cfg->name, ret);
     return ret;
 }
 
-static int runtime_macro_install_dt_defaults(void) {
-    bool slot_used[CONFIG_ZMK_RUNTIME_MACRO_COUNT] = {0};
-
+/* Fires as the settings subsystem's commit callback, i.e. once settings_load()
+ * has finished loading every persisted record for every registered handler
+ * (see subsys/settings/src/settings_store.c: settings_load_subtree loads all
+ * sources, THEN commits all handlers) - so every persisted macro is already
+ * bound to its keyspace slot by the time this runs, and behavior local IDs
+ * are long since resolved (behavior_local_id_init runs at
+ * APPLICATION/CONFIG_APPLICATION_INIT_PRIORITY, well before settings_load()
+ * is called from main()). Best-effort: one bad default must not prevent the
+ * rest from installing. */
+static int runtime_macro_seed_dt_defaults(void) {
     for (size_t i = 0; i < RUNTIME_MACRO_DEFAULT_COUNT; i++) {
-        /* Best-effort: one bad default must not prevent the rest from installing. */
-        install_one_default(i, runtime_macro_default_configs[i], slot_used);
+        install_one_default(runtime_macro_default_configs[i]);
     }
 
     return 0;
 }
 
-/* Must run after behavior_local_id_init() (zmk/src/behavior.c, APPLICATION/
- * CONFIG_APPLICATION_INIT_PRIORITY, 90 by default) so behavior local IDs resolve, and before
- * settings_load() (always later, from main()). zmk_custom_setting_set_default() itself is safe
- * regardless of ordering relative to custom_settings_init() (same level/priority), so only
- * running after behavior_local_id_init matters here. SYS_INIT priority must be a plain literal
- * (it is stringified into a linker section name), so this can't be expressed as
- * CONFIG_APPLICATION_INIT_PRIORITY + 1 - use a fixed priority safely above the default instead. */
-SYS_INIT(runtime_macro_install_dt_defaults, APPLICATION, 91);
+/* No h_get/h_set/h_export: this handler exists purely to run
+ * runtime_macro_seed_dt_defaults() as h_commit. Its registered name never
+ * matches a real stored setting, so it never intercepts settings_load()'s
+ * per-record dispatch - it only participates in the commit phase that runs
+ * once after every source has loaded. */
+SETTINGS_STATIC_HANDLER_DEFINE(runtime_macro_dt_defaults, "runtime_macro_dt_defaults", NULL, NULL,
+                               runtime_macro_seed_dt_defaults, NULL);
 
 #endif /* DT_HAS_COMPAT_STATUS_OKAY(DT_DRV_COMPAT) */

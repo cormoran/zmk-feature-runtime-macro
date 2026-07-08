@@ -8,6 +8,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 #include <zephyr/device.h>
@@ -41,10 +42,9 @@ struct runtime_macro_player {
     struct k_work play_work;
     struct k_work_delayable clear_active_work;
     bool active;
-    uint32_t index;
+    uint32_t slot;
     struct zmk_behavior_binding_event event;
-    struct zmk_custom_setting_value body_value;
-    uint8_t encoded[CONFIG_ZMK_CUSTOM_SETTINGS_VALUE_MAX_SIZE];
+    uint8_t encoded[CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES];
     struct runtime_macro_queue_item items[CONFIG_ZMK_RUNTIME_MACRO_QUEUE_SIZE];
 };
 
@@ -91,24 +91,29 @@ static const STRUCT_SECTION_ITERABLE(zmk_behavior_ref, runtime_macro_wait_behavi
     .device = DEVICE_GET(runtime_macro_wait_behavior),
 };
 
-#define DEFINE_RUNTIME_MACRO_NAME_SETTING(i, _)                                                    \
-    ZMK_CUSTOM_SETTING_ARRAY_ELEMENT_DEFINE(                                                       \
-        runtime_macro_name_##i, ZMK_RUNTIME_MACRO_SUBSYSTEM_ID, ZMK_RUNTIME_MACRO_NAMES_KEY, i,    \
-        CONFIG_ZMK_RUNTIME_MACRO_COUNT, ZMK_CUSTOM_SETTING_VALUE_TYPE_STRING,                      \
-        ZMK_CUSTOM_SETTING_VALUE_STRING(""), ZMK_CUSTOM_SETTING_CONFIDENTIALITY_RPC_PUBLIC,        \
-        ZMK_CUSTOM_SETTING_PERMISSION_UNSECURE, ZMK_CUSTOM_SETTING_PERMISSION_UNSECURE,            \
-        ZMK_CUSTOM_SETTING_NO_CONSTRAINT);
+BUILD_ASSERT(CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES <= CONFIG_ZMK_CUSTOM_SETTINGS_LARGE_VALUE_MAX_SIZE,
+             "ZMK_RUNTIME_MACRO_MAX_BYTES must not exceed "
+             "ZMK_CUSTOM_SETTINGS_LARGE_VALUE_MAX_SIZE");
+BUILD_ASSERT(CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES <= CONFIG_ZMK_RUNTIME_MACRO_POOL_BYTES,
+             "ZMK_RUNTIME_MACRO_MAX_BYTES must not exceed ZMK_RUNTIME_MACRO_POOL_BYTES");
 
-#define DEFINE_RUNTIME_MACRO_BODY_SETTING(i, _)                                                    \
-    ZMK_CUSTOM_SETTING_ARRAY_ELEMENT_DEFINE(                                                       \
-        runtime_macro_body_##i, ZMK_RUNTIME_MACRO_SUBSYSTEM_ID, ZMK_RUNTIME_MACRO_BODIES_KEY, i,   \
-        CONFIG_ZMK_RUNTIME_MACRO_COUNT, ZMK_CUSTOM_SETTING_VALUE_TYPE_BYTES,                       \
-        ZMK_CUSTOM_SETTING_VALUE_BYTES(), ZMK_CUSTOM_SETTING_CONFIDENTIALITY_RPC_PUBLIC,           \
-        ZMK_CUSTOM_SETTING_PERMISSION_UNSECURE, ZMK_CUSTOM_SETTING_PERMISSION_UNSECURE,            \
-        ZMK_CUSTOM_SETTING_NO_CONSTRAINT);
+/* A macro's whole identity+content is one runtime_macros keyspace entry:
+ * "macro/<name>" -> encoded body. max_key_len leaves room for the "macro/"
+ * prefix, up to NAME_MAX_LEN name bytes, and the NUL terminator. The pool
+ * budget is the module's own POOL_BYTES config (not the worst-case
+ * COUNT * (max_key_len + MAX_BYTES)) - see
+ * ZMK_CUSTOM_SETTING_KEYSPACE_DEFINE_WITH_POOL_SIZE - so a handful of large
+ * macros or many small ones share one budget, matching the pre-migration
+ * shared-pool property (docs/design/large-macros-shared-pool.md). */
+#define RUNTIME_MACRO_MAX_KEY_LEN                                                                  \
+    (sizeof(ZMK_RUNTIME_MACRO_KEY_PREFIX) - 1 + CONFIG_ZMK_RUNTIME_MACRO_NAME_MAX_LEN + 1)
 
-LISTIFY(CONFIG_ZMK_RUNTIME_MACRO_COUNT, DEFINE_RUNTIME_MACRO_NAME_SETTING, (), _)
-LISTIFY(CONFIG_ZMK_RUNTIME_MACRO_COUNT, DEFINE_RUNTIME_MACRO_BODY_SETTING, (), _)
+ZMK_CUSTOM_SETTING_KEYSPACE_DEFINE_WITH_POOL_SIZE(
+    runtime_macros, ZMK_RUNTIME_MACRO_SUBSYSTEM_ID, ZMK_RUNTIME_MACRO_KEY_PREFIX,
+    ZMK_CUSTOM_SETTING_VALUE_TYPE_BYTES, CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES,
+    RUNTIME_MACRO_MAX_KEY_LEN, CONFIG_ZMK_RUNTIME_MACRO_COUNT, CONFIG_ZMK_RUNTIME_MACRO_POOL_BYTES,
+    ZMK_CUSTOM_SETTING_CONFIDENTIALITY_RPC_PUBLIC, ZMK_CUSTOM_SETTING_PERMISSION_UNSECURE,
+    ZMK_CUSTOM_SETTING_PERMISSION_UNSECURE, ZMK_CUSTOM_SETTING_NO_CONSTRAINT);
 
 ZMK_CUSTOM_SETTING_DEFINE(runtime_macro_tap_ms, ZMK_RUNTIME_MACRO_SUBSYSTEM_ID,
                           ZMK_RUNTIME_MACRO_TAP_MS_KEY, ZMK_CUSTOM_SETTING_VALUE_TYPE_INT32,
@@ -374,6 +379,43 @@ static uint32_t get_runtime_macro_tap_ms(void) {
     return MIN(value.int32_value, 10000);
 }
 
+/* Build the keyspace key "macro/<name>" into a caller-owned scratch buffer. */
+static int build_key(const char *name, char *out, size_t out_size) {
+    if (!name) {
+        return -EINVAL;
+    }
+
+    int n = snprintf(out, out_size, "%s%s", ZMK_RUNTIME_MACRO_KEY_PREFIX, name);
+    if (n < 0 || (size_t)n >= out_size) {
+        return -ENAMETOOLONG;
+    }
+
+    return 0;
+}
+
+/* The keyspace slot array is a fixed, address-stable static allocation (see
+ * ZMK_CUSTOM_SETTING_KEYSPACE_DEFINE), so a pointer into it never moves -
+ * this scan is only ever used to translate an already-resolved descriptor
+ * back to its slot number (e.g. right after create()). */
+static int slot_index_of(const struct zmk_custom_setting *setting) {
+    for (uint32_t i = 0; i < CONFIG_ZMK_RUNTIME_MACRO_COUNT; i++) {
+        if (&runtime_macros.slots[i].setting == setting) {
+            return (int)i;
+        }
+    }
+    return -ENOENT;
+}
+
+/* Strip the keyspace's own "macro/" prefix off a slot's public (storage) key
+ * to recover the bare user-facing name. */
+static const char *strip_prefix(const char *public_key) {
+    size_t prefix_len = sizeof(ZMK_RUNTIME_MACRO_KEY_PREFIX) - 1;
+    if (strncmp(public_key, ZMK_RUNTIME_MACRO_KEY_PREFIX, prefix_len) == 0) {
+        return public_key + prefix_len;
+    }
+    return public_key;
+}
+
 static void runtime_macro_clear_active_work_handler(struct k_work *work) {
     ARG_UNUSED(work);
 
@@ -382,7 +424,7 @@ static void runtime_macro_clear_active_work_handler(struct k_work *work) {
     k_mutex_unlock(&player.lock);
 }
 
-static int runtime_macro_start_playback(uint32_t index,
+static int runtime_macro_start_playback(uint32_t slot,
                                         const struct zmk_behavior_binding_event *event) {
     k_mutex_lock(&player.lock, K_FOREVER);
     if (player.active) {
@@ -391,7 +433,7 @@ static int runtime_macro_start_playback(uint32_t index,
     }
 
     k_work_cancel_delayable(&player.clear_active_work);
-    player.index = index;
+    player.slot = slot;
     player.event = *event;
     player.active = true;
     k_mutex_unlock(&player.lock);
@@ -419,32 +461,31 @@ static void runtime_macro_play_work_handler(struct k_work *work) {
     ARG_UNUSED(work);
 
     k_mutex_lock(&player.lock, K_FOREVER);
-    uint32_t index = player.index;
+    uint32_t slot = player.slot;
     struct zmk_behavior_binding_event event = player.event;
     k_mutex_unlock(&player.lock);
 
-    int ret = zmk_custom_setting_read_array_by_key(
-        ZMK_RUNTIME_MACRO_SUBSYSTEM_ID, ZMK_RUNTIME_MACRO_BODIES_KEY, index, &player.body_value);
+    if (!runtime_macros.slots[slot].in_use) {
+        /* The slot was deleted between the keypress and this deferred work
+         * running - nothing to play. */
+        LOG_DBG("Runtime macro slot %u is empty at playback time", slot);
+        runtime_macro_finish_playback(0);
+        return;
+    }
+
+    size_t body_size = 0;
+    int ret = zmk_custom_setting_read_into(&runtime_macros.slots[slot].setting, player.encoded,
+                                           sizeof(player.encoded), &body_size, NULL);
     if (ret < 0) {
-        LOG_WRN("Runtime macro %u body read failed: %d", index, ret);
+        LOG_WRN("Runtime macro slot %u body read failed: %d", slot, ret);
         runtime_macro_finish_playback(0);
         return;
-    }
-
-    if (player.body_value.size > sizeof(player.encoded)) {
-        LOG_WRN("Runtime macro %u body too large: %zu", index, player.body_value.size);
-        runtime_macro_finish_playback(0);
-        return;
-    }
-
-    if (player.body_value.size > 0) {
-        memcpy(player.encoded, player.body_value.bytes_value, player.body_value.size);
     }
 
     size_t count = 0;
-    ret = decode_macro(player.encoded, player.body_value.size, player.items, &count);
+    ret = decode_macro(player.encoded, body_size, player.items, &count);
     if (ret < 0) {
-        LOG_WRN("Runtime macro %u decode failed: %d", index, ret);
+        LOG_WRN("Runtime macro slot %u decode failed: %d", slot, ret);
         runtime_macro_finish_playback(0);
         return;
     }
@@ -452,7 +493,7 @@ static void runtime_macro_play_work_handler(struct k_work *work) {
     uint32_t queued_duration_ms = 0;
     ret = queue_runtime_macro(player.items, count, &event, &queued_duration_ms);
     if (ret < 0) {
-        LOG_WRN("Runtime macro %u queue failed: %d", index, ret);
+        LOG_WRN("Runtime macro slot %u queue failed: %d", slot, ret);
         runtime_macro_finish_playback(0);
         return;
     }
@@ -560,91 +601,228 @@ int zmk_runtime_macro_validate_encoded(const uint8_t *encoded, size_t size) {
     return decode_macro(encoded, size, NULL, &count);
 }
 
-int zmk_runtime_macro_read(uint32_t index, char *name, size_t name_capacity, uint8_t *encoded,
-                           size_t encoded_capacity, size_t *encoded_size) {
-    if (index >= CONFIG_ZMK_RUNTIME_MACRO_COUNT) {
+int zmk_runtime_macro_play(uint32_t slot, const struct zmk_behavior_binding_event *event) {
+    if (slot >= CONFIG_ZMK_RUNTIME_MACRO_COUNT) {
         return -ERANGE;
     }
 
-    if (name && name_capacity > 0) {
-        struct zmk_custom_setting_value name_value;
-        int ret = zmk_custom_setting_read_array_by_key(
-            ZMK_RUNTIME_MACRO_SUBSYSTEM_ID, ZMK_RUNTIME_MACRO_NAMES_KEY, index, &name_value);
-        if (ret < 0) {
-            return ret;
-        }
-
-        size_t copy_size = MIN(name_value.size, name_capacity - 1);
-        memcpy(name, name_value.string_value, copy_size);
-        name[copy_size] = '\0';
+    if (!runtime_macros.slots[slot].in_use) {
+        LOG_DBG("Runtime macro slot %u is empty", slot);
+        return 0;
     }
 
-    struct zmk_custom_setting_value body_value;
-    int ret = zmk_custom_setting_read_array_by_key(
-        ZMK_RUNTIME_MACRO_SUBSYSTEM_ID, ZMK_RUNTIME_MACRO_BODIES_KEY, index, &body_value);
-    if (ret < 0) {
-        return ret;
-    }
-
-    if (body_value.size > encoded_capacity) {
-        return -EMSGSIZE;
-    }
-
-    if (encoded && body_value.size > 0) {
-        memcpy(encoded, body_value.bytes_value, body_value.size);
-    }
-    if (encoded_size) {
-        *encoded_size = body_value.size;
-    }
-
-    return 0;
+    return runtime_macro_start_playback(slot, event);
 }
 
-int zmk_runtime_macro_write(uint32_t index, const char *name, const uint8_t *encoded,
-                            size_t encoded_size, bool persist) {
-    if (index >= CONFIG_ZMK_RUNTIME_MACRO_COUNT) {
-        return -ERANGE;
+int zmk_runtime_macro_create(const char *name, const uint8_t *encoded, size_t encoded_size,
+                             enum zmk_custom_setting_write_mode mode, uint32_t *out_slot) {
+    if (!name || name[0] == '\0') {
+        return -EINVAL;
     }
 
     int ret = zmk_runtime_macro_validate_encoded(encoded, encoded_size);
     if (ret < 0) {
         return ret;
     }
-
-    enum zmk_custom_setting_write_mode mode =
-        persist ? ZMK_CUSTOM_SETTING_WRITE_MODE_PERSIST : ZMK_CUSTOM_SETTING_WRITE_MODE_MEMORY;
-
-    struct zmk_custom_setting_value name_value = {
-        .type = ZMK_CUSTOM_SETTING_VALUE_TYPE_STRING,
-    };
-    if (name) {
-        name_value.size = MIN(strlen(name), CONFIG_ZMK_CUSTOM_SETTINGS_VALUE_MAX_SIZE);
-        memcpy(name_value.string_value, name, name_value.size);
-        name_value.string_value[name_value.size] = '\0';
+    if (encoded_size > CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES) {
+        return -EMSGSIZE;
     }
 
-    ret = zmk_custom_setting_write_array_by_key(
-        ZMK_RUNTIME_MACRO_SUBSYSTEM_ID, ZMK_RUNTIME_MACRO_NAMES_KEY, index, &name_value, mode);
+    char key[RUNTIME_MACRO_MAX_KEY_LEN];
+    ret = build_key(name, key, sizeof(key));
     if (ret < 0) {
         return ret;
     }
 
-    struct zmk_custom_setting_value body_value = {
+    /* Create with an empty body first (fits any keyspace's small-value
+     * carrier unconditionally), then grow it with write_bytes exactly like
+     * any other pooled BYTES setting - mirrors the pattern
+     * zmk-feature-custom-settings' own keyspace tests use for large
+     * entries. */
+    struct zmk_custom_setting_value initial_value = {
         .type = ZMK_CUSTOM_SETTING_VALUE_TYPE_BYTES,
-        .size = encoded_size,
+        .size = 0,
     };
-    if (encoded_size > 0) {
-        memcpy(body_value.bytes_value, encoded, encoded_size);
+    const struct zmk_custom_setting *created = NULL;
+    ret = zmk_custom_setting_keyspace_create(&runtime_macros, key, &initial_value, mode, &created);
+    if (ret < 0) {
+        return ret;
     }
 
-    return zmk_custom_setting_write_array_by_key(
-        ZMK_RUNTIME_MACRO_SUBSYSTEM_ID, ZMK_RUNTIME_MACRO_BODIES_KEY, index, &body_value, mode);
+    if (encoded_size > 0) {
+        ret = zmk_custom_setting_write_bytes(created, encoded, encoded_size, mode);
+        if (ret < 0) {
+            /* Don't leave a stray empty macro behind on a failed body write
+             * (e.g. -ENOSPC from a full pool). */
+            zmk_custom_setting_keyspace_delete(&runtime_macros, key);
+            return ret;
+        }
+    }
+
+    if (out_slot) {
+        int slot = slot_index_of(created);
+        *out_slot = slot >= 0 ? (uint32_t)slot : 0;
+    }
+
+    return 0;
 }
 
-int zmk_runtime_macro_play(uint32_t index, const struct zmk_behavior_binding_event *event) {
-    if (index >= CONFIG_ZMK_RUNTIME_MACRO_COUNT) {
-        return -ERANGE;
+int zmk_runtime_macro_delete(const char *name) {
+    char key[RUNTIME_MACRO_MAX_KEY_LEN];
+    int ret = build_key(name, key, sizeof(key));
+    if (ret < 0) {
+        return ret;
     }
 
-    return runtime_macro_start_playback(index, event);
+    return zmk_custom_setting_keyspace_delete(&runtime_macros, key);
+}
+
+int zmk_runtime_macro_write(const char *name, const uint8_t *encoded, size_t encoded_size,
+                            enum zmk_custom_setting_write_mode mode) {
+    int ret = zmk_runtime_macro_validate_encoded(encoded, encoded_size);
+    if (ret < 0) {
+        return ret;
+    }
+    if (encoded_size > CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES) {
+        return -EMSGSIZE;
+    }
+
+    char key[RUNTIME_MACRO_MAX_KEY_LEN];
+    ret = build_key(name, key, sizeof(key));
+    if (ret < 0) {
+        return ret;
+    }
+
+    const struct zmk_custom_setting *setting =
+        zmk_custom_setting_keyspace_find(&runtime_macros, key);
+    if (!setting) {
+        return -ENOENT;
+    }
+
+    /* -ENOSPC here means the shared name+body pool
+     * (CONFIG_ZMK_RUNTIME_MACRO_POOL_BYTES) is exhausted; propagate it
+     * unchanged so the Studio RPC handler can surface a clear "pool full"
+     * message. */
+    return zmk_custom_setting_write_bytes(setting, encoded, encoded_size, mode);
+}
+
+int zmk_runtime_macro_read(const char *name, uint8_t *encoded, size_t encoded_capacity,
+                           size_t *encoded_size) {
+    char key[RUNTIME_MACRO_MAX_KEY_LEN];
+    int ret = build_key(name, key, sizeof(key));
+    if (ret < 0) {
+        return ret;
+    }
+
+    const struct zmk_custom_setting *setting =
+        zmk_custom_setting_keyspace_find(&runtime_macros, key);
+    if (!setting) {
+        return -ENOENT;
+    }
+
+    size_t body_size = 0;
+    ret = zmk_custom_setting_read_into(setting, encoded, encoded_capacity, &body_size, NULL);
+    if (ret < 0) {
+        return ret;
+    }
+    if (encoded_size) {
+        *encoded_size = body_size;
+    }
+
+    return 0;
+}
+
+int zmk_runtime_macro_rename(const char *old_name, const char *new_name,
+                             enum zmk_custom_setting_write_mode mode) {
+    char old_key[RUNTIME_MACRO_MAX_KEY_LEN];
+    int ret = build_key(old_name, old_key, sizeof(old_key));
+    if (ret < 0) {
+        return ret;
+    }
+
+    const struct zmk_custom_setting *existing =
+        zmk_custom_setting_keyspace_find(&runtime_macros, old_key);
+    if (!existing) {
+        return -ENOENT;
+    }
+
+    uint8_t encoded[CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES];
+    size_t encoded_size = 0;
+    ret = zmk_custom_setting_read_into(existing, encoded, sizeof(encoded), &encoded_size, NULL);
+    if (ret < 0) {
+        return ret;
+    }
+
+    ret = zmk_runtime_macro_create(new_name, encoded, encoded_size, mode, NULL);
+    if (ret < 0) {
+        return ret;
+    }
+
+    return zmk_custom_setting_keyspace_delete(&runtime_macros, old_key);
+}
+
+int zmk_runtime_macro_name_for_slot(uint32_t slot, char *name, size_t name_capacity) {
+    if (slot >= CONFIG_ZMK_RUNTIME_MACRO_COUNT) {
+        return -ERANGE;
+    }
+    if (!runtime_macros.slots[slot].in_use) {
+        return -ENOENT;
+    }
+
+    const char *public_key = zmk_custom_setting_public_key(&runtime_macros.slots[slot].setting);
+    snprintf(name, name_capacity, "%s", strip_prefix(public_key));
+    return 0;
+}
+
+int zmk_runtime_macro_slot_for_name(const char *name, uint32_t *out_slot) {
+    char key[RUNTIME_MACRO_MAX_KEY_LEN];
+    int ret = build_key(name, key, sizeof(key));
+    if (ret < 0) {
+        return ret;
+    }
+
+    const struct zmk_custom_setting *setting =
+        zmk_custom_setting_keyspace_find(&runtime_macros, key);
+    if (!setting) {
+        return -ENOENT;
+    }
+
+    int slot = slot_index_of(setting);
+    if (slot < 0) {
+        return -ENOENT;
+    }
+    if (out_slot) {
+        *out_slot = (uint32_t)slot;
+    }
+    return 0;
+}
+
+size_t zmk_runtime_macro_pool_total(void) { return CONFIG_ZMK_RUNTIME_MACRO_POOL_BYTES; }
+
+size_t zmk_runtime_macro_pool_used(void) {
+    return zmk_custom_setting_large_pool_used(runtime_macros.large_pool);
+}
+
+int zmk_runtime_macro_for_each(zmk_runtime_macro_iter_cb_t cb, void *user_data) {
+    for (uint32_t slot = 0; slot < CONFIG_ZMK_RUNTIME_MACRO_COUNT; slot++) {
+        if (!runtime_macros.slots[slot].in_use) {
+            continue;
+        }
+
+        char name[CONFIG_ZMK_RUNTIME_MACRO_NAME_MAX_LEN + 1];
+        int ret = zmk_runtime_macro_name_for_slot(slot, name, sizeof(name));
+        if (ret < 0) {
+            continue;
+        }
+
+        size_t encoded_size = 0;
+        zmk_custom_setting_value_size(&runtime_macros.slots[slot].setting, &encoded_size);
+
+        ret = cb(slot, name, encoded_size, user_data);
+        if (ret < 0) {
+            return ret;
+        }
+    }
+
+    return 0;
 }

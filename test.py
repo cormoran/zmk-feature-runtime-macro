@@ -77,6 +77,10 @@ class WestCommandsTests(unittest.TestCase):
                         "CONFIG_ZMK_CUSTOM_SETTINGS_STUDIO_RPC=y",
                         "# CONFIG_ZMK_STUDIO_LOCKING is not set",
                         "CONFIG_ZMK_STUDIO_RPC_RX_BUF_SIZE=192",
+                        "CONFIG_ZMK_CUSTOM_SETTINGS_LARGE_VALUE_MAX_SIZE=256",
+                        "CONFIG_ZMK_STUDIO_RPC_THREAD_STACK_SIZE=8192",
+                        "CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES=256",
+                        "CONFIG_ZMK_RUNTIME_MACRO_POOL_BYTES=1024",
                     ],
                     device=[],
                 ),
@@ -87,6 +91,7 @@ class WestCommandsTests(unittest.TestCase):
                         "CONFIG_ZMK_BEHAVIOR_LOCAL_ID_TYPE_CRC16=y",
                         "CONFIG_ZMK_CUSTOM_SETTINGS=y",
                         "# CONFIG_ZMK_STUDIO is not set",
+                        "CONFIG_ZMK_CUSTOM_SETTINGS_LARGE_VALUE_MAX_SIZE=256",
                         NotFound("CONFIG_ZMK_RUNTIME_MACRO_STUDIO_RPC"),
                     ],
                     device=[],
@@ -104,6 +109,8 @@ class WestCommandsTests(unittest.TestCase):
                         "# CONFIG_ZMK_STUDIO_LOCKING is not set",
                         "CONFIG_ZMK_STUDIO_RPC_RX_BUF_SIZE=192",
                         "CONFIG_ZMK_LOW_PRIORITY_THREAD_STACK_SIZE=2048",
+                        "CONFIG_ZMK_CUSTOM_SETTINGS_LARGE_VALUE_MAX_SIZE=256",
+                        "CONFIG_ZMK_STUDIO_RPC_THREAD_STACK_SIZE=8192",
                     ],
                     device=[],
                 ),
@@ -111,6 +118,7 @@ class WestCommandsTests(unittest.TestCase):
                     config=[
                         "CONFIG_ZMK_RUNTIME_MACRO=y",
                         "CONFIG_ZMK_BEHAVIOR_LOCAL_ID_TYPE_CRC16=y",
+                        "CONFIG_ZMK_CUSTOM_SETTINGS_LARGE_VALUE_MAX_SIZE=256",
                     ],
                     device=[
                         # Verify the devicetree default macro node in the

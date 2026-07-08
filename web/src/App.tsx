@@ -11,6 +11,11 @@ import {
   Response,
 } from "./proto/cormoran/runtime_macro/runtime_macro";
 import {
+  Request as CustomSettingsRequest,
+  Response as CustomSettingsResponse,
+  SettingWriteMode,
+} from "./proto/cormoran/zmk/custom_settings/custom_settings";
+import {
   compactKeyTapSteps,
   encodeRuntimeMacro,
   fromKeyboardAbyssSteps,
@@ -20,15 +25,21 @@ import type { RuntimeMacroStep } from "./macroCodec";
 import type { MacroStep as RpcMacroStep } from "./proto/cormoran/runtime_macro/runtime_macro";
 
 export const SUBSYSTEM_IDENTIFIER = "cormoran__runtime_macro";
+// The generic custom-settings Studio RPC subsystem - used only for
+// CreateSetting/DeleteSetting (raw entry create/delete/rename), since those
+// are already covered by zmk-feature-custom-settings and this module does
+// not duplicate them in its own proto. See docs/design/keyspace-macros.md.
+const CUSTOM_SETTINGS_SUBSYSTEM_IDENTIFIER = "cormoran_custom_settings";
+const MACRO_KEY_PREFIX = "macro/";
 
 type MacroSummary = {
-  index: number;
+  slot: number;
   name: string;
   encodedSize: number;
 };
 
 type LoadedMacro = {
-  index: number;
+  slot: number;
   name: string;
   steps: RuntimeMacroStep[];
 };
@@ -122,20 +133,29 @@ function App() {
 export function RuntimeMacroEditor() {
   const zmkApp = useContext(ZMKAppContext);
   const [macros, setMacros] = useState<MacroSummary[]>([]);
-  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [selectedName, setSelectedName] = useState<string | null>(null);
   const [loadedMacro, setLoadedMacro] = useState<LoadedMacro | null>(null);
   const [maxMacroBytes, setMaxMacroBytes] = useState(64);
+  const [maxNameLength, setMaxNameLength] = useState(32);
+  const [poolBytesTotal, setPoolBytesTotal] = useState(0);
+  const [poolBytesUsed, setPoolBytesUsed] = useState(0);
   const [tapMs, setTapMs] = useState(30);
   const [keyPressBehaviorId, setKeyPressBehaviorId] = useState<
     number | undefined
   >(undefined);
   const [jsonText, setJsonText] = useState("[]");
+  const [newMacroName, setNewMacroName] = useState("");
+  const [renameTo, setRenameTo] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   const subsystem = zmkApp?.findSubsystem(SUBSYSTEM_IDENTIFIER);
+  const customSettingsSubsystem = zmkApp?.findSubsystem(
+    CUSTOM_SETTINGS_SUBSYSTEM_IDENTIFIER
+  );
   const connection = zmkApp?.state.connection;
   const subsystemIndex = subsystem?.index;
+  const customSettingsSubsystemIndex = customSettingsSubsystem?.index;
   const serviceReady = connection && subsystemIndex !== undefined;
 
   const callRPC = useCallback(
@@ -154,18 +174,38 @@ export function RuntimeMacroEditor() {
     [connection, subsystemIndex]
   );
 
+  const callCustomSettingsRPC = useCallback(
+    async (request: CustomSettingsRequest) => {
+      if (!connection || customSettingsSubsystemIndex === undefined) {
+        throw new Error("custom-settings subsystem is not connected");
+      }
+      const service = new ZMKCustomSubsystem(
+        connection,
+        customSettingsSubsystemIndex
+      );
+      const payload = CustomSettingsRequest.encode(request).finish();
+      const responsePayload = await service.callRPC(payload);
+      if (!responsePayload) throw new Error("Empty RPC response");
+      const response = CustomSettingsResponse.decode(responsePayload);
+      if (response.error) throw new Error(response.error.message);
+      return response;
+    },
+    [connection, customSettingsSubsystemIndex]
+  );
+
   const loadMacro = useCallback(
-    async (index: number, keyPressId = keyPressBehaviorId) => {
+    async (slot: number, keyPressId = keyPressBehaviorId) => {
       setIsLoading(true);
       setMessage(null);
       try {
-        const response = await callRPC(Request.create({ getMacro: { index } }));
+        const response = await callRPC(Request.create({ getMacro: { slot } }));
         const macro = response.getMacro?.macro;
         if (!macro) throw new Error("Macro was missing from RPC response");
 
         const steps = macro.steps.map(runtimeStepFromRpc);
-        setSelectedIndex(index);
-        setLoadedMacro({ index, name: macro.name, steps });
+        setSelectedName(macro.name);
+        setLoadedMacro({ slot: macro.slot, name: macro.name, steps });
+        setRenameTo(macro.name);
         setJsonText(
           JSON.stringify(
             toKeyboardAbyssSteps(steps, { keyPressBehaviorId: keyPressId }),
@@ -192,12 +232,13 @@ export function RuntimeMacroEditor() {
       const list = response.listMacros?.macros ?? [];
       setMacros(
         list.map((macro) => ({
-          index: macro.index,
+          slot: macro.slot,
           name: macro.name,
           encodedSize: macro.encodedSize,
         }))
       );
       setMaxMacroBytes(response.listMacros?.maxMacroBytes || 64);
+      setMaxNameLength(response.listMacros?.maxNameLength || 32);
       const globalSettings = await callRPC(
         Request.create({ getMacroGlobalSettings: {} })
       );
@@ -205,11 +246,17 @@ export function RuntimeMacroEditor() {
       const nextKeyPressBehaviorId = settings?.keyPressBehaviorId || undefined;
       setTapMs(settings?.tapMs ?? 30);
       setKeyPressBehaviorId(nextKeyPressBehaviorId);
+      setPoolBytesTotal(settings?.poolBytesTotal ?? 0);
+      setPoolBytesUsed(settings?.poolBytesUsed ?? 0);
       if (list.length > 0) {
+        const stillSelected = list.find((m) => m.name === selectedName);
         await loadMacro(
-          list[Math.min(selectedIndex, list.length - 1)].index,
+          (stillSelected ?? list[0]).slot,
           nextKeyPressBehaviorId
         );
+      } else {
+        setSelectedName(null);
+        setLoadedMacro(null);
       }
     } catch (error) {
       setMessage(
@@ -218,13 +265,14 @@ export function RuntimeMacroEditor() {
     } finally {
       setIsLoading(false);
     }
-  }, [callRPC, loadMacro, selectedIndex]);
+  }, [callRPC, loadMacro, selectedName]);
 
   useEffect(() => {
     if (!serviceReady) return;
     const timer = window.setTimeout(() => void refreshList(), 0);
     return () => window.clearTimeout(timer);
-  }, [refreshList, serviceReady]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serviceReady]);
 
   if (!zmkApp) return null;
 
@@ -287,17 +335,8 @@ export function RuntimeMacroEditor() {
 
       await callRPC(
         Request.create({
-          setMacroName: {
-            index: loadedMacro.index,
-            name: loadedMacro.name,
-            persist,
-          },
-        })
-      );
-      await callRPC(
-        Request.create({
           setMacroStepCount: {
-            index: loadedMacro.index,
+            slot: loadedMacro.slot,
             stepCount: rpcSteps.length,
             persist,
           },
@@ -307,7 +346,7 @@ export function RuntimeMacroEditor() {
         await callRPC(
           Request.create({
             setMacroStep: {
-              index: loadedMacro.index,
+              slot: loadedMacro.slot,
               stepIndex,
               step: runtimeStepToRpc(step),
               persist,
@@ -359,29 +398,120 @@ export function RuntimeMacroEditor() {
     }
   };
 
-  const deleteMacro = async (persist: boolean) => {
-    if (!loadedMacro) return;
+  // Raw create/delete/rename go through the generic custom-settings
+  // CreateSetting/DeleteSetting RPC (subsystem "cormoran_custom_settings"),
+  // not a runtime-macro-specific request - see docs/design/keyspace-macros.md.
+  const createMacro = async () => {
+    const name = newMacroName.trim();
+    if (!name) return;
+    if (customSettingsSubsystemIndex === undefined) {
+      setMessage(
+        `Subsystem "${CUSTOM_SETTINGS_SUBSYSTEM_IDENTIFIER}" was not found - build firmware with custom-settings RPC enabled`
+      );
+      return;
+    }
+
     setIsLoading(true);
     setMessage(null);
-
     try {
-      await callRPC(
-        Request.create({
-          deleteMacro: {
-            index: loadedMacro.index,
-            persist,
+      await callCustomSettingsRPC(
+        CustomSettingsRequest.create({
+          createSetting: {
+            setting: { key: MACRO_KEY_PREFIX + name },
+            value: { bytesValue: Uint8Array.from([1]) }, // format version, no steps
+            mode: SettingWriteMode.SETTING_WRITE_MODE_MEMORY,
           },
         })
       );
-      setLoadedMacro({ index: loadedMacro.index, name: "", steps: [] });
-      setJsonText("[]");
+      setNewMacroName("");
+      setMessage(`Created "${name}"`);
+      setSelectedName(name);
+      await refreshList();
+    } catch (error) {
       setMessage(
-        persist ? "Deleted from persistent settings" : "Deleted in memory"
+        error instanceof Error ? error.message : "Failed to create macro"
       );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const deleteMacro = async () => {
+    if (!loadedMacro) return;
+    if (customSettingsSubsystemIndex === undefined) {
+      setMessage(
+        `Subsystem "${CUSTOM_SETTINGS_SUBSYSTEM_IDENTIFIER}" was not found - build firmware with custom-settings RPC enabled`
+      );
+      return;
+    }
+
+    setIsLoading(true);
+    setMessage(null);
+    try {
+      await callCustomSettingsRPC(
+        CustomSettingsRequest.create({
+          deleteSetting: {
+            setting: { key: MACRO_KEY_PREFIX + loadedMacro.name },
+          },
+        })
+      );
+      setLoadedMacro(null);
+      setSelectedName(null);
+      setJsonText("[]");
+      setMessage(`Deleted "${loadedMacro.name}"`);
       await refreshList();
     } catch (error) {
       setMessage(
         error instanceof Error ? error.message : "Failed to delete macro"
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const renameMacro = async () => {
+    if (!loadedMacro) return;
+    const newName = renameTo.trim();
+    if (!newName || newName === loadedMacro.name) return;
+    if (customSettingsSubsystemIndex === undefined) {
+      setMessage(
+        `Subsystem "${CUSTOM_SETTINGS_SUBSYSTEM_IDENTIFIER}" was not found - build firmware with custom-settings RPC enabled`
+      );
+      return;
+    }
+
+    setIsLoading(true);
+    setMessage(null);
+    try {
+      const encodedMacro = encodeRuntimeMacro(
+        compactKeyTapSteps(loadedMacro.steps, { keyPressBehaviorId }),
+        { keyPressBehaviorId }
+      );
+      // Create the new name first (carrying the current body), then delete
+      // the old one - so a failure never loses data (see
+      // zmk_runtime_macro_rename's doc comment).
+      await callCustomSettingsRPC(
+        CustomSettingsRequest.create({
+          createSetting: {
+            setting: { key: MACRO_KEY_PREFIX + newName },
+            value: { bytesValue: encodedMacro },
+            mode: SettingWriteMode.SETTING_WRITE_MODE_MEMORY,
+          },
+        })
+      );
+      await callCustomSettingsRPC(
+        CustomSettingsRequest.create({
+          deleteSetting: {
+            setting: { key: MACRO_KEY_PREFIX + loadedMacro.name },
+          },
+        })
+      );
+      setMessage(`Renamed to "${newName}"`);
+      setSelectedName(newName);
+      await refreshList();
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Failed to rename macro"
       );
     } finally {
       setIsLoading(false);
@@ -452,18 +582,46 @@ export function RuntimeMacroEditor() {
             Refresh
           </button>
         </div>
+        {poolBytesTotal > 0 && (
+          <p
+            className={
+              poolBytesUsed >= poolBytesTotal
+                ? "message warning pool-usage"
+                : "message pool-usage"
+            }
+          >
+            Shared macro pool: {poolBytesUsed}/{poolBytesTotal} B used
+          </p>
+        )}
         {macros.map((macro) => (
           <button
-            key={macro.index}
+            key={macro.name}
             className={
-              macro.index === selectedIndex ? "macro-row selected" : "macro-row"
+              macro.name === selectedName ? "macro-row selected" : "macro-row"
             }
-            onClick={() => loadMacro(macro.index)}
+            onClick={() => loadMacro(macro.slot)}
           >
-            <span>{macro.name || `Macro ${macro.index}`}</span>
-            <small>{macro.encodedSize} B</small>
+            <span>{macro.name || `(unnamed slot ${macro.slot})`}</span>
+            <small>
+              slot {macro.slot} · {macro.encodedSize} B
+            </small>
           </button>
         ))}
+        <div className="create-macro">
+          <input
+            value={newMacroName}
+            maxLength={maxNameLength}
+            placeholder="New macro name"
+            onChange={(event) => setNewMacroName(event.target.value)}
+          />
+          <button
+            className="btn"
+            onClick={createMacro}
+            disabled={isLoading || !newMacroName.trim()}
+          >
+            Create
+          </button>
+        </div>
       </aside>
 
       <section className="editor">
@@ -500,15 +658,22 @@ export function RuntimeMacroEditor() {
 
             <div className="editor-head">
               <label>
-                Name
+                Name (slot {loadedMacro.slot})
                 <input
-                  value={loadedMacro.name}
-                  maxLength={64}
-                  onChange={(event) =>
-                    setLoadedMacro({ ...loadedMacro, name: event.target.value })
-                  }
+                  value={renameTo}
+                  maxLength={maxNameLength}
+                  onChange={(event) => setRenameTo(event.target.value)}
                 />
               </label>
+              <button
+                className="btn"
+                onClick={renameMacro}
+                disabled={
+                  isLoading || !renameTo.trim() || renameTo === loadedMacro.name
+                }
+              >
+                Rename
+              </button>
               <div
                 className={
                   encodedSize > maxMacroBytes ? "byte-count over" : "byte-count"
@@ -563,17 +728,10 @@ export function RuntimeMacroEditor() {
               </button>
               <button
                 className="btn danger"
-                onClick={() => deleteMacro(false)}
+                onClick={deleteMacro}
                 disabled={isLoading}
               >
-                Delete Memory
-              </button>
-              <button
-                className="btn danger"
-                onClick={() => deleteMacro(true)}
-                disabled={isLoading}
-              >
-                Delete Saved
+                Delete
               </button>
             </div>
 
@@ -592,7 +750,7 @@ export function RuntimeMacroEditor() {
             </div>
           </>
         ) : (
-          <p>Select a macro slot.</p>
+          <p>No macro selected. Create one to get started.</p>
         )}
 
         {message && <p className="message">{message}</p>}

@@ -8,8 +8,7 @@
 	runtime_macro_defaults {
 		rmacro_default_0 {
 			compatible = "cormoran,runtime-macro-default";
-			slot = <0>;
-			display-name = "Hi";
+			macro-name = "Hi";
 			text = "hi";
 		};
 	};

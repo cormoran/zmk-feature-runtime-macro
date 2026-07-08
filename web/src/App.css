@@ -76,6 +76,17 @@
   white-space: nowrap;
 }
 
+.create-macro {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.create-macro input {
+  flex: 1;
+  min-width: 0;
+}
+
 .editor {
   min-width: 0;
   border: 1px solid #d1d5db;
@@ -206,6 +217,11 @@ textarea {
 
 .message.warning {
   color: #92400e;
+}
+
+.pool-usage {
+  margin: 0 0 10px;
+  font-size: 0.85rem;
 }
 
 @media (max-width: 860px) {

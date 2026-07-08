@@ -3,16 +3,14 @@
 #include <behaviors/runtime_macro.dtsi>
 #include <dt-bindings/zmk/kscan_mock.h>
 
+/*
+ * No devicetree default macro node here on purpose: DT-default seeding
+ * timing/coexistence with other created macros is covered by the dedicated
+ * tests/dt-defaults suite. `&rmacro 1` below targets a slot no test ever
+ * creates a macro in, exercising the "empty slot plays nothing" contract
+ * (see zmk_runtime_macro_play's doc comment).
+ */
 / {
-	runtime_macro_defaults {
-		rmacro_default_1 {
-			compatible = "cormoran,runtime-macro-default";
-			slot = <1>;
-			display-name = "DT Default";
-			text = "hi";
-		};
-	};
-
 	keymap {
 		compatible = "zmk,keymap";
 

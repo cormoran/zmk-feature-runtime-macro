@@ -1,2 +1,3 @@
 /zmk: Welcome to ZMK!/p
 s/zmk: on_keymap_binding_//p
+s/.*PASS: runtime_macro_/PASS: runtime_macro_/p
