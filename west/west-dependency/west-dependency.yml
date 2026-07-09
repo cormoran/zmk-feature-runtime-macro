@@ -8,4 +8,4 @@ manifest:
       # TODO: revert to `main` once cormoran/zmk-feature-custom-settings#41
       # (public zmk_custom_settings_notify_suppress_begin/end API) merges.
       url: https://github.com/cormoran/zmk-feature-custom-settings
-      revision: feat/public-notify-suppress
+      revision: main
