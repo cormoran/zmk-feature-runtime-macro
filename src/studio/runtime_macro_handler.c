@@ -780,6 +780,20 @@ static bool runtime_macro_rpc_handle_request(const zmk_custom_CallRequest *raw_r
 
     int ret = 0;
 
+    /* Our mutating handlers write macros through the custom-settings core API,
+     * which raises a "setting changed" event that the custom-settings Studio
+     * layer turns into its own notification. That notification is redundant
+     * here (this RPC's own response already confirms the change to the single
+     * Studio client), and its listener runs synchronously in this thread and
+     * pb_encodes the notification: at the default CONFIG_ZMK_STUDIO_RPC_THREAD_
+     * STACK_SIZE (4096) that extra encode depth OVERFLOWS the RPC thread stack
+     * on real hardware (MemManage / watchdog K_ERR_STACK_CHK_FAIL - observed on
+     * a XIAO nRF52840 running CreateMacro), and even with headroom it competes
+     * with the pending response on the shared transport. Suppress it for the
+     * whole dispatch, exactly as custom-settings brackets its own RPC entry
+     * point. Read-only requests raise no event, so bracketing them is harmless. */
+    zmk_custom_settings_notify_suppress_begin();
+
     switch (req.which_request_type) {
     case cormoran_runtime_macro_Request_list_macros_tag:
         ret = handle_list_macros(resp);
@@ -821,6 +835,8 @@ static bool runtime_macro_rpc_handle_request(const zmk_custom_CallRequest *raw_r
         ret = -ENOTSUP;
         break;
     }
+
+    zmk_custom_settings_notify_suppress_end();
 
     if (ret < 0 && resp->which_response_type != cormoran_runtime_macro_Response_error_tag) {
         /* resolve_slot_name() already sets a slot-specific error directly on
