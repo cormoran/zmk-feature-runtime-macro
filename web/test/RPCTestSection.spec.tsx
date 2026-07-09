@@ -9,15 +9,6 @@ import {
   Request,
   Response,
 } from "../src/proto/cormoran/runtime_macro/runtime_macro";
-import {
-  Request as CustomSettingsRequest,
-  Response as CustomSettingsResponse,
-} from "../src/proto/cormoran/zmk/custom_settings/custom_settings";
-
-const CUSTOM_SETTINGS_SUBSYSTEM_IDENTIFIER = "cormoran_custom_settings";
-// Matches createMockSubsystems' array-index-as-subsystem-index convention -
-// see [SUBSYSTEM_IDENTIFIER, CUSTOM_SETTINGS_SUBSYSTEM_IDENTIFIER] below.
-const CUSTOM_SETTINGS_SUBSYSTEM_INDEX = 1;
 
 jest.mock("@zmkfirmware/zmk-studio-ts-client", () => ({
   call_rpc: jest.fn(),
@@ -25,7 +16,6 @@ jest.mock("@zmkfirmware/zmk-studio-ts-client", () => ({
 
 describe("RuntimeMacroEditor Component", () => {
   const rpcRequests: Request[] = [];
-  const customSettingsRequests: CustomSettingsRequest[] = [];
 
   const mockRuntimeMacroRpc = () => {
     const { call_rpc } = jest.requireMock("@zmkfirmware/zmk-studio-ts-client");
@@ -39,24 +29,6 @@ describe("RuntimeMacroEditor Component", () => {
         const payload = rpcRequest.custom?.call?.payload;
         if (!payload) {
           throw new Error("Missing custom RPC payload");
-        }
-
-        if (
-          rpcRequest.custom?.call?.subsystemIndex ===
-          CUSTOM_SETTINGS_SUBSYSTEM_INDEX
-        ) {
-          const request = CustomSettingsRequest.decode(payload);
-          customSettingsRequests.push(request);
-          const response = CustomSettingsResponse.create({
-            status: { affectedCount: 1, message: "OK" },
-          });
-          return {
-            custom: {
-              call: {
-                payload: CustomSettingsResponse.encode(response).finish(),
-              },
-            },
-          };
         }
 
         const request = Request.decode(payload);
@@ -121,7 +93,6 @@ describe("RuntimeMacroEditor Component", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     rpcRequests.length = 0;
-    customSettingsRequests.length = 0;
     mockRuntimeMacroRpc();
   });
 
@@ -181,14 +152,11 @@ describe("RuntimeMacroEditor Component", () => {
     });
   });
 
-  describe("Create/Delete via generic custom-settings RPC", () => {
-    it("creates a macro with CreateSetting on the custom-settings subsystem", async () => {
+  describe("Create/Delete/Rename via the runtime-macro RPC", () => {
+    it("creates a macro with a CreateMacro request", async () => {
       const mockZMKApp = createConnectedMockZMKApp({
         deviceName: "Test Device",
-        subsystems: [
-          SUBSYSTEM_IDENTIFIER,
-          CUSTOM_SETTINGS_SUBSYSTEM_IDENTIFIER,
-        ],
+        subsystems: [SUBSYSTEM_IDENTIFIER],
       });
 
       render(
@@ -210,21 +178,17 @@ describe("RuntimeMacroEditor Component", () => {
 
       await waitFor(() => {
         expect(
-          customSettingsRequests.some(
-            (request) =>
-              request.createSetting?.setting?.key === "macro/New Macro"
+          rpcRequests.some(
+            (request) => request.createMacro?.name === "New Macro"
           )
         ).toBe(true);
       });
     });
 
-    it("deletes the loaded macro with DeleteSetting on the custom-settings subsystem", async () => {
+    it("deletes the loaded macro with a DeleteMacro request", async () => {
       const mockZMKApp = createConnectedMockZMKApp({
         deviceName: "Test Device",
-        subsystems: [
-          SUBSYSTEM_IDENTIFIER,
-          CUSTOM_SETTINGS_SUBSYSTEM_IDENTIFIER,
-        ],
+        subsystems: [SUBSYSTEM_IDENTIFIER],
       });
 
       render(
@@ -242,9 +206,38 @@ describe("RuntimeMacroEditor Component", () => {
 
       await waitFor(() => {
         expect(
-          customSettingsRequests.some(
+          rpcRequests.some(
+            (request) => request.deleteMacro?.name === "Test Macro"
+          )
+        ).toBe(true);
+      });
+    });
+
+    it("renames the loaded macro with a RenameMacro request", async () => {
+      const mockZMKApp = createConnectedMockZMKApp({
+        deviceName: "Test Device",
+        subsystems: [SUBSYSTEM_IDENTIFIER],
+      });
+
+      render(
+        <ZMKAppProvider value={mockZMKApp}>
+          <RuntimeMacroEditor />
+        </ZMKAppProvider>
+      );
+
+      const nameInput = await screen.findByDisplayValue("Test Macro");
+
+      const user = userEvent.setup();
+      await user.clear(nameInput);
+      await user.type(nameInput, "Renamed Macro");
+      await user.click(screen.getByRole("button", { name: "Rename" }));
+
+      await waitFor(() => {
+        expect(
+          rpcRequests.some(
             (request) =>
-              request.deleteSetting?.setting?.key === "macro/Test Macro"
+              request.renameMacro?.oldName === "Test Macro" &&
+              request.renameMacro?.newName === "Renamed Macro"
           )
         ).toBe(true);
       });

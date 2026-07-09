@@ -1,11 +1,6 @@
 version: v2
 inputs:
   - directory: ../proto
-  # Vendored copy of zmk-feature-custom-settings' proto, for the generic
-  # CreateSetting/DeleteSetting RPC client - see vendor-proto/README note in
-  # the .proto file itself. Kept out of ../proto so the firmware build
-  # (which globs proto/*.proto) never sees it.
-  - directory: vendor-proto
 plugins:
   - local: protoc-gen-ts_proto
     opt:
@@ -16,7 +11,7 @@ plugins:
       - esModuleInterop=true
       # Plain TS `enum` (ts-proto's default) emits runtime code, which this
       # project's tsconfig `erasableSyntaxOnly` forbids - an `as const`
-      # object literal is erasable. Only the vendored custom_settings proto
-      # declares any enums; runtime_macro.proto has none.
+      # object literal is erasable. (runtime_macro.proto declares no enums
+      # today, but keep this so adding one never breaks the build.)
       - enumsAsLiterals=true
     out: src/proto

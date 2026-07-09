@@ -2,20 +2,18 @@ syntax = "proto3";
 
 package cormoran.runtime_macro;
 
-// Raw create/delete/rename of a macro entry is intentionally NOT duplicated
-// here: it is already covered by the generic zmk-feature-custom-settings
-// Studio RPC (CreateSetting/DeleteSetting, subsystem "cormoran__runtime_macro",
-// key "macro/<name>"). This subsystem only carries macro-domain operations
-// that the generic RPC cannot express: structured step-level editing, slot
-// resolution, and playback-adjacent global settings.
+// A macro's whole lifecycle lives on this subsystem: CreateMacro/DeleteMacro/
+// RenameMacro address a macro by its NAME, and the step-level editing RPCs
+// address it by its SLOT number. A client never needs to know how macros are
+// stored (they happen to be zmk-feature-custom-settings keyspace entries under
+// the "macro/" prefix) - this keeps the storage an implementation detail and
+// avoids the client having to drive the generic custom-settings RPC directly.
 //
-// Every operational RPC below (get/set-step-count/set-step/append-step)
-// addresses a macro by its `slot` number, not its name - the same numeric
-// index the keymap behavior binding uses to play it. A macro's slot is only
-// known for certain by reading its `slot` field from ListMacrosResponse or
-// MacroDetail (e.g. right after creating it via the generic CreateSetting
-// RPC). Renaming/creating/deleting a macro still goes through the
-// name-keyed generic CreateSetting/DeleteSetting RPC, unaffected by this.
+// The operational RPCs (get/set-step-count/set-step/append-step) address a
+// macro by its `slot` number - the same numeric index the keymap behavior
+// binding uses to play it. A macro's slot is only known for certain by reading
+// its `slot` field from ListMacrosResponse or MacroDetail (e.g. right after
+// creating it with CreateMacro, then finding it by name in ListMacros).
 
 message ListMacrosRequest {}
 
@@ -75,6 +73,29 @@ message AppendMacroStepRequest {
     bool persist = 3;
 }
 
+// Create a new, empty macro named `name`. The new macro claims whatever
+// keyspace slot is currently free; read it back from ListMacros to learn its
+// slot, then add steps with AppendMacroStep. `persist` writes the new entry
+// straight to flash (otherwise it lives in memory until SaveMacros).
+message CreateMacroRequest {
+    string name = 1;
+    bool persist = 2;
+}
+
+// Delete the macro named `name`, freeing its slot and erasing any persisted
+// record.
+message DeleteMacroRequest { string name = 1; }
+
+// Rename `old_name` to `new_name`, keeping the body. The old entry is left
+// untouched if the rename cannot complete, so a rename never loses data. The
+// macro's slot is NOT guaranteed to be preserved (the renamed entry claims
+// whatever slot is free).
+message RenameMacroRequest {
+    string old_name = 1;
+    string new_name = 2;
+    bool persist = 3;
+}
+
 message SetTapMsRequest {
     uint32 tap_ms = 1;
     bool persist = 2;
@@ -85,8 +106,8 @@ message SaveMacrosRequest {}
 message DiscardMacrosRequest {}
 
 message Request {
-    reserved 3,
-        8; // formerly set_macro_name, delete_macro - see generic CreateSetting/DeleteSetting
+    reserved 3, 8; // formerly set_macro_name, delete_macro (early designs) -
+                   // superseded by rename_macro/delete_macro below
     oneof request_type {
         ListMacrosRequest list_macros = 1;
         GetMacroRequest get_macro = 2;
@@ -97,6 +118,9 @@ message Request {
         SaveMacrosRequest save_macros = 9;
         DiscardMacrosRequest discard_macros = 10;
         AppendMacroStepRequest append_macro_step = 11;
+        CreateMacroRequest create_macro = 12;
+        DeleteMacroRequest delete_macro = 13;
+        RenameMacroRequest rename_macro = 14;
     }
 }
 
