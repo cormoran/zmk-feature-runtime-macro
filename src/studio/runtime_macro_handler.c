@@ -420,9 +420,8 @@ static int resolve_slot_name(uint32_t slot, char *name, size_t name_capacity,
     if (ret == -ERANGE) {
         set_error(resp, "Slot out of range");
     } else if (ret == -ENOENT) {
-        set_error(resp, "No macro bound to that slot - create one first with CreateSetting "
-                        "(key \"macro/<name>\") on the cormoran_custom_settings subsystem, "
-                        "then read its assigned slot from the list/create response");
+        set_error(resp, "No macro bound to that slot - create one first with CreateMacro, "
+                        "then read its assigned slot from the macro list");
     }
     return ret;
 }
@@ -658,6 +657,112 @@ static int handle_discard_macros(cormoran_runtime_macro_Response *resp) {
     return 0;
 }
 
+/* Map the errno a create/rename returns to a clear, actionable message and
+ * set it on `resp` directly (returning 0 so the generic errno dispatch at the
+ * bottom of runtime_macro_rpc_handle_request() does not overwrite it). `name`
+ * is the offending macro name for the interpolated cases. Returns 0 if it
+ * handled `ret`, or `ret` unchanged if it is not one of the known cases (let
+ * the caller return it for the generic path). */
+static int set_lifecycle_error(cormoran_runtime_macro_Response *resp, int ret, const char *name) {
+    switch (ret) {
+    case -EEXIST:
+        set_error(resp, "A macro with that name already exists");
+        return 0;
+    case -ENOENT:
+        set_error(resp, "No macro with that name");
+        return 0;
+    case -EMSGSIZE:
+        set_error(resp, "Macro name is too long");
+        return 0;
+    case -ENOSPC:
+        set_error(resp, "No space for another macro: delete one, or free the pool");
+        return 0;
+    case -EINVAL:
+        set_error(resp, "Invalid macro name");
+        return 0;
+    default:
+        ARG_UNUSED(name);
+        return ret;
+    }
+}
+
+static int handle_create_macro(const cormoran_runtime_macro_CreateMacroRequest *req,
+                               cormoran_runtime_macro_Response *resp) {
+    if (req->name[0] == '\0') {
+        set_error(resp, "Macro name must not be empty");
+        return 0;
+    }
+
+    enum zmk_custom_setting_write_mode mode =
+        req->persist ? ZMK_CUSTOM_SETTING_WRITE_MODE_PERSIST : ZMK_CUSTOM_SETTING_WRITE_MODE_MEMORY;
+
+    /* A fresh macro is just the format-version header with no steps; the
+     * client adds steps afterwards with AppendMacroStep. */
+    const uint8_t empty_body[] = {ZMK_RUNTIME_MACRO_FORMAT_VERSION};
+    uint32_t slot = 0;
+    int ret = zmk_runtime_macro_create(req->name, empty_body, sizeof(empty_body), mode, &slot);
+    if (ret < 0) {
+        return set_lifecycle_error(resp, ret, req->name);
+    }
+
+    cormoran_runtime_macro_StatusResponse result = cormoran_runtime_macro_StatusResponse_init_zero;
+    result.affected_count = 1;
+    snprintf(result.message, sizeof(result.message), "Macro \"%s\" created (slot %u)", req->name,
+             slot);
+
+    resp->which_response_type = cormoran_runtime_macro_Response_status_tag;
+    resp->response_type.status = result;
+
+    return 0;
+}
+
+static int handle_delete_macro(const cormoran_runtime_macro_DeleteMacroRequest *req,
+                               cormoran_runtime_macro_Response *resp) {
+    if (req->name[0] == '\0') {
+        set_error(resp, "Macro name must not be empty");
+        return 0;
+    }
+
+    int ret = zmk_runtime_macro_delete(req->name);
+    if (ret < 0) {
+        return set_lifecycle_error(resp, ret, req->name);
+    }
+
+    cormoran_runtime_macro_StatusResponse result = cormoran_runtime_macro_StatusResponse_init_zero;
+    result.affected_count = 1;
+    snprintf(result.message, sizeof(result.message), "Macro \"%s\" deleted", req->name);
+
+    resp->which_response_type = cormoran_runtime_macro_Response_status_tag;
+    resp->response_type.status = result;
+
+    return 0;
+}
+
+static int handle_rename_macro(const cormoran_runtime_macro_RenameMacroRequest *req,
+                               cormoran_runtime_macro_Response *resp) {
+    if (req->old_name[0] == '\0' || req->new_name[0] == '\0') {
+        set_error(resp, "Macro name must not be empty");
+        return 0;
+    }
+
+    enum zmk_custom_setting_write_mode mode =
+        req->persist ? ZMK_CUSTOM_SETTING_WRITE_MODE_PERSIST : ZMK_CUSTOM_SETTING_WRITE_MODE_MEMORY;
+
+    int ret = zmk_runtime_macro_rename(req->old_name, req->new_name, mode);
+    if (ret < 0) {
+        return set_lifecycle_error(resp, ret, req->new_name);
+    }
+
+    cormoran_runtime_macro_StatusResponse result = cormoran_runtime_macro_StatusResponse_init_zero;
+    result.affected_count = 1;
+    snprintf(result.message, sizeof(result.message), "Macro renamed to \"%s\"", req->new_name);
+
+    resp->which_response_type = cormoran_runtime_macro_Response_status_tag;
+    resp->response_type.status = result;
+
+    return 0;
+}
+
 static bool runtime_macro_rpc_handle_request(const zmk_custom_CallRequest *raw_request,
                                              pb_callback_t *encode_response) {
     cormoran_runtime_macro_Response *resp =
@@ -697,6 +802,15 @@ static bool runtime_macro_rpc_handle_request(const zmk_custom_CallRequest *raw_r
     case cormoran_runtime_macro_Request_append_macro_step_tag:
         ret = handle_append_macro_step(&req.request_type.append_macro_step, resp);
         break;
+    case cormoran_runtime_macro_Request_create_macro_tag:
+        ret = handle_create_macro(&req.request_type.create_macro, resp);
+        break;
+    case cormoran_runtime_macro_Request_delete_macro_tag:
+        ret = handle_delete_macro(&req.request_type.delete_macro, resp);
+        break;
+    case cormoran_runtime_macro_Request_rename_macro_tag:
+        ret = handle_rename_macro(&req.request_type.rename_macro, resp);
+        break;
     case cormoran_runtime_macro_Request_save_macros_tag:
         ret = handle_save_macros(resp);
         break;
@@ -722,9 +836,8 @@ static bool runtime_macro_rpc_handle_request(const zmk_custom_CallRequest *raw_r
         if (ret == -ENOSPC) {
             set_error(resp, "Macro pool full: delete or shrink another macro");
         } else if (ret == -ENOENT) {
-            set_error(resp, "No macro bound to that slot - create one first with CreateSetting "
-                            "(key \"macro/<name>\") on the cormoran_custom_settings subsystem, "
-                            "then read its assigned slot from the list/create response");
+            set_error(resp, "No macro bound to that slot - create one first with CreateMacro, "
+                            "then read its assigned slot from the macro list");
         } else {
             set_errno_error(resp, "Runtime macro RPC", ret);
         }

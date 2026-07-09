@@ -11,11 +11,6 @@ import {
   Response,
 } from "./proto/cormoran/runtime_macro/runtime_macro";
 import {
-  Request as CustomSettingsRequest,
-  Response as CustomSettingsResponse,
-  SettingWriteMode,
-} from "./proto/cormoran/zmk/custom_settings/custom_settings";
-import {
   compactKeyTapSteps,
   encodeRuntimeMacro,
   fromKeyboardAbyssSteps,
@@ -25,12 +20,6 @@ import type { RuntimeMacroStep } from "./macroCodec";
 import type { MacroStep as RpcMacroStep } from "./proto/cormoran/runtime_macro/runtime_macro";
 
 export const SUBSYSTEM_IDENTIFIER = "cormoran__runtime_macro";
-// The generic custom-settings Studio RPC subsystem - used only for
-// CreateSetting/DeleteSetting (raw entry create/delete/rename), since those
-// are already covered by zmk-feature-custom-settings and this module does
-// not duplicate them in its own proto. See docs/design/keyspace-macros.md.
-const CUSTOM_SETTINGS_SUBSYSTEM_IDENTIFIER = "cormoran_custom_settings";
-const MACRO_KEY_PREFIX = "macro/";
 
 type MacroSummary = {
   slot: number;
@@ -150,12 +139,8 @@ export function RuntimeMacroEditor() {
   const [isLoading, setIsLoading] = useState(false);
 
   const subsystem = zmkApp?.findSubsystem(SUBSYSTEM_IDENTIFIER);
-  const customSettingsSubsystem = zmkApp?.findSubsystem(
-    CUSTOM_SETTINGS_SUBSYSTEM_IDENTIFIER
-  );
   const connection = zmkApp?.state.connection;
   const subsystemIndex = subsystem?.index;
-  const customSettingsSubsystemIndex = customSettingsSubsystem?.index;
   const serviceReady = connection && subsystemIndex !== undefined;
 
   const callRPC = useCallback(
@@ -172,25 +157,6 @@ export function RuntimeMacroEditor() {
       return response;
     },
     [connection, subsystemIndex]
-  );
-
-  const callCustomSettingsRPC = useCallback(
-    async (request: CustomSettingsRequest) => {
-      if (!connection || customSettingsSubsystemIndex === undefined) {
-        throw new Error("custom-settings subsystem is not connected");
-      }
-      const service = new ZMKCustomSubsystem(
-        connection,
-        customSettingsSubsystemIndex
-      );
-      const payload = CustomSettingsRequest.encode(request).finish();
-      const responsePayload = await service.callRPC(payload);
-      if (!responsePayload) throw new Error("Empty RPC response");
-      const response = CustomSettingsResponse.decode(responsePayload);
-      if (response.error) throw new Error(response.error.message);
-      return response;
-    },
-    [connection, customSettingsSubsystemIndex]
   );
 
   const loadMacro = useCallback(
@@ -398,31 +364,17 @@ export function RuntimeMacroEditor() {
     }
   };
 
-  // Raw create/delete/rename go through the generic custom-settings
-  // CreateSetting/DeleteSetting RPC (subsystem "cormoran_custom_settings"),
-  // not a runtime-macro-specific request - see docs/design/keyspace-macros.md.
+  // Create/delete/rename are macro-domain RPCs on this module's own
+  // subsystem: the client addresses a macro by name and never needs to know
+  // it is stored as a custom-settings keyspace entry.
   const createMacro = async () => {
     const name = newMacroName.trim();
     if (!name) return;
-    if (customSettingsSubsystemIndex === undefined) {
-      setMessage(
-        `Subsystem "${CUSTOM_SETTINGS_SUBSYSTEM_IDENTIFIER}" was not found - build firmware with custom-settings RPC enabled`
-      );
-      return;
-    }
 
     setIsLoading(true);
     setMessage(null);
     try {
-      await callCustomSettingsRPC(
-        CustomSettingsRequest.create({
-          createSetting: {
-            setting: { key: MACRO_KEY_PREFIX + name },
-            value: { bytesValue: Uint8Array.from([1]) }, // format version, no steps
-            mode: SettingWriteMode.SETTING_WRITE_MODE_MEMORY,
-          },
-        })
-      );
+      await callRPC(Request.create({ createMacro: { name, persist: false } }));
       setNewMacroName("");
       setMessage(`Created "${name}"`);
       setSelectedName(name);
@@ -438,22 +390,12 @@ export function RuntimeMacroEditor() {
 
   const deleteMacro = async () => {
     if (!loadedMacro) return;
-    if (customSettingsSubsystemIndex === undefined) {
-      setMessage(
-        `Subsystem "${CUSTOM_SETTINGS_SUBSYSTEM_IDENTIFIER}" was not found - build firmware with custom-settings RPC enabled`
-      );
-      return;
-    }
 
     setIsLoading(true);
     setMessage(null);
     try {
-      await callCustomSettingsRPC(
-        CustomSettingsRequest.create({
-          deleteSetting: {
-            setting: { key: MACRO_KEY_PREFIX + loadedMacro.name },
-          },
-        })
+      await callRPC(
+        Request.create({ deleteMacro: { name: loadedMacro.name } })
       );
       setLoadedMacro(null);
       setSelectedName(null);
@@ -473,36 +415,18 @@ export function RuntimeMacroEditor() {
     if (!loadedMacro) return;
     const newName = renameTo.trim();
     if (!newName || newName === loadedMacro.name) return;
-    if (customSettingsSubsystemIndex === undefined) {
-      setMessage(
-        `Subsystem "${CUSTOM_SETTINGS_SUBSYSTEM_IDENTIFIER}" was not found - build firmware with custom-settings RPC enabled`
-      );
-      return;
-    }
 
     setIsLoading(true);
     setMessage(null);
     try {
-      const encodedMacro = encodeRuntimeMacro(
-        compactKeyTapSteps(loadedMacro.steps, { keyPressBehaviorId }),
-        { keyPressBehaviorId }
-      );
-      // Create the new name first (carrying the current body), then delete
-      // the old one - so a failure never loses data (see
-      // zmk_runtime_macro_rename's doc comment).
-      await callCustomSettingsRPC(
-        CustomSettingsRequest.create({
-          createSetting: {
-            setting: { key: MACRO_KEY_PREFIX + newName },
-            value: { bytesValue: encodedMacro },
-            mode: SettingWriteMode.SETTING_WRITE_MODE_MEMORY,
-          },
-        })
-      );
-      await callCustomSettingsRPC(
-        CustomSettingsRequest.create({
-          deleteSetting: {
-            setting: { key: MACRO_KEY_PREFIX + loadedMacro.name },
+      // RenameMacro copies the body server-side and never loses data if the
+      // rename cannot complete (see zmk_runtime_macro_rename's doc comment).
+      await callRPC(
+        Request.create({
+          renameMacro: {
+            oldName: loadedMacro.name,
+            newName,
+            persist: false,
           },
         })
       );

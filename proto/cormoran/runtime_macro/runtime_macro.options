@@ -1,5 +1,9 @@
 cormoran.runtime_macro.MacroSummary.name       max_size:32
 cormoran.runtime_macro.MacroDetail.name        max_size:32
+cormoran.runtime_macro.CreateMacroRequest.name max_size:32
+cormoran.runtime_macro.DeleteMacroRequest.name max_size:32
+cormoran.runtime_macro.RenameMacroRequest.old_name max_size:32
+cormoran.runtime_macro.RenameMacroRequest.new_name max_size:32
 cormoran.runtime_macro.MacroDetail.steps       max_count:64
 cormoran.runtime_macro.KeyTapSequenceStep.packed_keys max_size:64
 cormoran.runtime_macro.ErrorResponse.message   max_size:96
