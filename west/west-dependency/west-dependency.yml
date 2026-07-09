@@ -5,5 +5,7 @@ manifest:
       url-base: https://github.com/zmkfirmware
   projects:
     - name: zmk-feature-custom-settings
+      # TODO: revert to `main` once cormoran/zmk-feature-custom-settings#41
+      # (public zmk_custom_settings_notify_suppress_begin/end API) merges.
       url: https://github.com/cormoran/zmk-feature-custom-settings
-      revision: main
+      revision: feat/public-notify-suppress
