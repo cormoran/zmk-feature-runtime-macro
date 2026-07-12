@@ -78,7 +78,11 @@ class WestCommandsTests(unittest.TestCase):
                         "# CONFIG_ZMK_STUDIO_LOCKING is not set",
                         "CONFIG_ZMK_STUDIO_RPC_RX_BUF_SIZE=192",
                         "CONFIG_ZMK_CUSTOM_SETTINGS_LARGE_VALUE_MAX_SIZE=256",
-                        "CONFIG_ZMK_STUDIO_RPC_THREAD_STACK_SIZE=8192",
+                        # The handlers keep large step buffers off the RPC
+                        # thread stack, so the module builds at the 4096 default
+                        # (no bump needed - regression guard for the GetMacro
+                        # RPC-thread stack overflow).
+                        "CONFIG_ZMK_STUDIO_RPC_THREAD_STACK_SIZE=4096",
                         "CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES=256",
                         "CONFIG_ZMK_RUNTIME_MACRO_POOL_BYTES=1024",
                     ],
@@ -110,7 +114,11 @@ class WestCommandsTests(unittest.TestCase):
                         "CONFIG_ZMK_STUDIO_RPC_RX_BUF_SIZE=192",
                         "CONFIG_ZMK_LOW_PRIORITY_THREAD_STACK_SIZE=2048",
                         "CONFIG_ZMK_CUSTOM_SETTINGS_LARGE_VALUE_MAX_SIZE=256",
-                        "CONFIG_ZMK_STUDIO_RPC_THREAD_STACK_SIZE=8192",
+                        # The handlers keep large step buffers off the RPC
+                        # thread stack, so the module builds at the 4096 default
+                        # (no bump needed - regression guard for the GetMacro
+                        # RPC-thread stack overflow).
+                        "CONFIG_ZMK_STUDIO_RPC_THREAD_STACK_SIZE=4096",
                     ],
                     device=[],
                 ),

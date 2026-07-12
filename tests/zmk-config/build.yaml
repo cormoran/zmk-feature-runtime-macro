@@ -6,7 +6,10 @@ include:
   - artifact: runtime_macro_board_with_rpc
     board: xiao_ble//zmk
     shield: tester_xiao
-    cmake-args: -DCONFIG_ZMK_STUDIO=y -DCONFIG_ZMK_STUDIO_LOCKING=n -DCONFIG_ZMK_RUNTIME_MACRO=y -DCONFIG_ZMK_RUNTIME_MACRO_STUDIO_RPC=y -DCONFIG_ZMK_BEHAVIOR_LOCAL_ID_TYPE_CRC16=y -DCONFIG_ZMK_STUDIO_RPC_RX_BUF_SIZE=192 -DCONFIG_ZMK_CUSTOM_SETTINGS_LARGE_VALUE_MAX_SIZE=256 -DCONFIG_ZMK_STUDIO_RPC_THREAD_STACK_SIZE=8192
+    # CONFIG_ZMK_STUDIO_RPC_THREAD_STACK_SIZE is intentionally left at its 4096
+    # default: the RPC handlers keep their ~4.6 KB step buffers off the RPC
+    # thread stack, so the module no longer needs the stack bump it used to.
+    cmake-args: -DCONFIG_ZMK_STUDIO=y -DCONFIG_ZMK_STUDIO_LOCKING=n -DCONFIG_ZMK_RUNTIME_MACRO=y -DCONFIG_ZMK_RUNTIME_MACRO_STUDIO_RPC=y -DCONFIG_ZMK_BEHAVIOR_LOCAL_ID_TYPE_CRC16=y -DCONFIG_ZMK_STUDIO_RPC_RX_BUF_SIZE=192 -DCONFIG_ZMK_CUSTOM_SETTINGS_LARGE_VALUE_MAX_SIZE=256
     snippet: studio-rpc-usb-uart
 
   - artifact: runtime_macro_board_without_rpc
@@ -17,7 +20,9 @@ include:
   - artifact: custom_settings_board
     board: xiao_ble//zmk
     shield: tester_xiao
-    cmake-args: -DCONFIG_ZMK_STUDIO=y -DCONFIG_ZMK_STUDIO_LOCKING=n -DCONFIG_ZMK_RUNTIME_MACRO=y -DCONFIG_ZMK_RUNTIME_MACRO_STUDIO_RPC=y -DCONFIG_ZMK_CUSTOM_SETTINGS=y -DCONFIG_ZMK_CUSTOM_SETTINGS_STUDIO_RPC=y -DCONFIG_ZMK_BEHAVIOR_LOCAL_ID_TYPE_CRC16=y -DCONFIG_ZMK_STUDIO_RPC_RX_BUF_SIZE=192 -DCONFIG_ZMK_CUSTOM_SETTINGS_LARGE_VALUE_MAX_SIZE=256 -DCONFIG_ZMK_STUDIO_RPC_THREAD_STACK_SIZE=8192
+    # RPC thread stack left at the 4096 default (see the with_rpc target above):
+    # the handlers no longer stage large step buffers on the RPC thread stack.
+    cmake-args: -DCONFIG_ZMK_STUDIO=y -DCONFIG_ZMK_STUDIO_LOCKING=n -DCONFIG_ZMK_RUNTIME_MACRO=y -DCONFIG_ZMK_RUNTIME_MACRO_STUDIO_RPC=y -DCONFIG_ZMK_CUSTOM_SETTINGS=y -DCONFIG_ZMK_CUSTOM_SETTINGS_STUDIO_RPC=y -DCONFIG_ZMK_BEHAVIOR_LOCAL_ID_TYPE_CRC16=y -DCONFIG_ZMK_STUDIO_RPC_RX_BUF_SIZE=192 -DCONFIG_ZMK_CUSTOM_SETTINGS_LARGE_VALUE_MAX_SIZE=256
     snippet: studio-rpc-usb-uart
 
   - artifact: runtime_macro_board_dt_defaults

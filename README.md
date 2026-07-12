@@ -57,8 +57,14 @@ CONFIG_ZMK_STUDIO_RPC_CUSTOM_SUBSYSTEM_REQUEST_PAYLOAD_MAX_BYTES=192
 CONFIG_ZMK_LOW_PRIORITY_THREAD_STACK_SIZE=2048
 # Required alongside the defaults below (see "Macro Size Limits"):
 CONFIG_ZMK_CUSTOM_SETTINGS_LARGE_VALUE_MAX_SIZE=256
-CONFIG_ZMK_STUDIO_RPC_THREAD_STACK_SIZE=8192
 ```
+
+The Studio RPC handlers keep their large per-macro buffers (a full step list is
+~4.6 KB) off the RPC thread stack, so the module runs at the default
+`CONFIG_ZMK_STUDIO_RPC_THREAD_STACK_SIZE=4096` - no stack bump is required.
+(Earlier versions staged a macro on the stack and needed
+`CONFIG_ZMK_STUDIO_RPC_THREAD_STACK_SIZE=8192`; forgetting it froze the keyboard
+with a `K_ERR_STACK_CHK_FAIL` watchdog reset. That is no longer necessary.)
 
 Include the behavior definition and bind a macro slot in your keymap.
 
