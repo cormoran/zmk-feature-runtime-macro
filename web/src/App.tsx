@@ -25,6 +25,7 @@ type MacroSummary = {
   slot: number;
   name: string;
   encodedSize: number;
+  hasUnsavedChanges: boolean;
 };
 
 type LoadedMacro = {
@@ -201,6 +202,7 @@ export function RuntimeMacroEditor() {
           slot: macro.slot,
           name: macro.name,
           encodedSize: macro.encodedSize,
+          hasUnsavedChanges: macro.hasUnsavedChanges,
         }))
       );
       setMaxMacroBytes(response.listMacros?.maxMacroBytes || 64);
@@ -562,9 +564,18 @@ export function RuntimeMacroEditor() {
             }
             onClick={() => loadMacro(macro.slot)}
           >
-            <span>{macro.name || `(unnamed slot ${macro.slot})`}</span>
+            <span>
+              {macro.name || `(unnamed slot ${macro.slot})`}
+              {macro.hasUnsavedChanges && (
+                <span className="unsaved-dot" title="Unsaved changes">
+                  {" "}
+                  ●
+                </span>
+              )}
+            </span>
             <small>
               slot {macro.slot} · {macro.encodedSize} B
+              {macro.hasUnsavedChanges && " · unsaved"}
             </small>
           </button>
         ))}

@@ -10,5 +10,6 @@ PASS: runtime_macro_tap_ms_persist_discard
 PASS: runtime_macro_slot_addressing_round_trip
 PASS: runtime_macro_slot_addressing_unbound_slot_rejected
 PASS: runtime_macro_slot_addressing_out_of_range_rejected
+PASS: runtime_macro_has_unsaved_changes
 zmk: Welcome to ZMK!
 pressed: position 0 keycode 0x70004

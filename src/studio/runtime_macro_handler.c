@@ -270,7 +270,8 @@ struct list_macros_ctx {
     cormoran_runtime_macro_ListMacrosResponse *result;
 };
 
-static int list_macros_cb(uint32_t slot, const char *name, size_t encoded_size, void *user_data) {
+static int list_macros_cb(uint32_t slot, const char *name, size_t encoded_size,
+                          bool has_unsaved_changes, void *user_data) {
     struct list_macros_ctx *ctx = user_data;
 
     if (ctx->result->macros_count >= ARRAY_SIZE(ctx->result->macros)) {
@@ -282,6 +283,7 @@ static int list_macros_cb(uint32_t slot, const char *name, size_t encoded_size, 
     summary->slot = slot;
     snprintf(summary->name, sizeof(summary->name), "%s", name);
     summary->encoded_size = encoded_size;
+    summary->has_unsaved_changes = has_unsaved_changes;
 
     return 0;
 }

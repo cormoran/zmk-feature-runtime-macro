@@ -94,7 +94,7 @@ Open the Web UI from the ZMK Studio custom subsystem list, connect over serial, 
 3. Bind that macro's slot number (`&rmacro <slot>`) in your keymap.
 4. **Rename**, **Reset to Default**, or **Delete** a macro any time from the editor.
 
-Memory updates become pending custom setting changes; use **Save Pending** to persist all pending runtime macro changes, or **Discard Pending** to restore the saved values.
+Memory updates become pending custom setting changes; use **Save Pending** to persist all pending runtime macro changes, or **Discard Pending** to restore the saved values. Macros with such in-memory-only changes are marked with an "unsaved" dot in the list (the `ListMacros` response reports this per macro as `has_unsaved_changes`).
 
 Create/Delete/Rename are macro-domain RPCs on this module's own subsystem (`CreateMacro`/`DeleteMacro`/`RenameMacro`), addressing a macro by its **name**. A client never needs to know that macros are stored as zmk-feature-custom-settings keyspace entries under the `macro/` prefix - the storage is an implementation detail, and no separate custom-settings RPC call is required. `RenameMacro` copies the body server-side and leaves the old entry untouched if it cannot complete, so a rename never loses the macro's content.
 

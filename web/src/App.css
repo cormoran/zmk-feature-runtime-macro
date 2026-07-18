@@ -76,6 +76,12 @@
   white-space: nowrap;
 }
 
+.unsaved-dot {
+  color: #d97706;
+  font-size: 0.7em;
+  vertical-align: middle;
+}
+
 .create-macro {
   display: flex;
   gap: 8px;

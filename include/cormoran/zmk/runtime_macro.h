@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -108,8 +109,10 @@ size_t zmk_runtime_macro_pool_used(void);
  * the macro's slot index and name for each. Used by the RPC list handler;
  * exposed here so it stays in one place (the keyspace-slot iteration
  * convention - see docs/design/keyspace-macros.md) instead of being
- * duplicated at each caller. `cb` returning a negative value stops the
- * iteration early and that value is returned; otherwise returns 0. */
+ * duplicated at each caller. `has_unsaved_changes` is true when the macro has
+ * an in-memory-only value not yet written to flash. `cb` returning a negative
+ * value stops the iteration early and that value is returned; otherwise
+ * returns 0. */
 typedef int (*zmk_runtime_macro_iter_cb_t)(uint32_t slot, const char *name, size_t encoded_size,
-                                           void *user_data);
+                                           bool has_unsaved_changes, void *user_data);
 int zmk_runtime_macro_for_each(zmk_runtime_macro_iter_cb_t cb, void *user_data);

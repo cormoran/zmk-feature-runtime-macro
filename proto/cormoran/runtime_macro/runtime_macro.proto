@@ -25,6 +25,12 @@ message MacroSummary {
     uint32 slot = 1;
     string name = 2;
     uint32 encoded_size = 3;
+    // True when the macro has an in-memory-only change not yet written to
+    // flash (a memory-mode create/edit, or a value that differs from the
+    // persisted one). Cleared by SaveMacros / DiscardMacros. A devicetree
+    // default that has never been saved also reports true, since it lives
+    // only in memory until the user saves it.
+    bool has_unsaved_changes = 4;
 }
 
 message BehaviorBinding {

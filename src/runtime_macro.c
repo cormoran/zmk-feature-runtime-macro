@@ -818,7 +818,10 @@ int zmk_runtime_macro_for_each(zmk_runtime_macro_iter_cb_t cb, void *user_data) 
         size_t encoded_size = 0;
         zmk_custom_setting_value_size(&runtime_macros.slots[slot].setting, &encoded_size);
 
-        ret = cb(slot, name, encoded_size, user_data);
+        bool has_unsaved_changes =
+            zmk_custom_setting_has_unsaved_value(&runtime_macros.slots[slot].setting);
+
+        ret = cb(slot, name, encoded_size, has_unsaved_changes, user_data);
         if (ret < 0) {
             return ret;
         }
