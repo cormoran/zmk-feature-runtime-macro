@@ -12,6 +12,7 @@
 #include <pb_encode.h>
 #include <zephyr/device.h>
 #include <zephyr/sys/util.h>
+#include <zmk/studio/core.h>
 #include <zmk/studio/custom.h>
 #include <cormoran/runtime_macro/runtime_macro.pb.h>
 #include <cormoran/zmk/custom_settings.h>
@@ -25,9 +26,16 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 static bool runtime_macro_rpc_handle_request(const zmk_custom_CallRequest *raw_request,
                                              pb_callback_t *encode_response);
 
+/* The subsystem is registered UNSECURED so that ListMacros (and the equally
+ * content-free GetMacroGlobalSettings) can be answered while Studio is locked -
+ * they only expose per-macro metadata (slot/name/size/unsaved) and global
+ * limits, never a macro's actual steps. The framework's security gate is
+ * all-or-nothing per subsystem, so the finer "unlock only to read contents or
+ * to write" rule is enforced per-request in the handler via
+ * request_requires_unlock(). */
 static struct zmk_rpc_custom_subsystem_meta runtime_macro_meta = {
     ZMK_RPC_CUSTOM_SUBSYSTEM_UI_URLS("https://cormoran.github.io/zmk-feature-runtime-macro/"),
-    .security = ZMK_STUDIO_RPC_HANDLER_SECURED,
+    .security = ZMK_STUDIO_RPC_HANDLER_UNSECURED,
 };
 
 ZMK_RPC_CUSTOM_SUBSYSTEM(cormoran__runtime_macro, &runtime_macro_meta,
@@ -855,6 +863,22 @@ static int handle_reset_macro(const cormoran_runtime_macro_ResetMacroRequest *re
     return 0;
 }
 
+/* Whether a request may only run while Studio is unlocked. ListMacros and
+ * GetMacroGlobalSettings expose only metadata (slots, names, sizes, unsaved
+ * flags, global limits) and stay readable when locked; GetMacro reveals a
+ * macro's actual steps, and every mutating RPC changes stored macros, so both
+ * require an unlocked session. Unknown request types default to requiring
+ * unlock (fail closed). */
+static bool request_requires_unlock(pb_size_t which_request_type) {
+    switch (which_request_type) {
+    case cormoran_runtime_macro_Request_list_macros_tag:
+    case cormoran_runtime_macro_Request_get_macro_global_settings_tag:
+        return false;
+    default:
+        return true;
+    }
+}
+
 static bool runtime_macro_rpc_handle_request(const zmk_custom_CallRequest *raw_request,
                                              pb_callback_t *encode_response) {
     cormoran_runtime_macro_Response *resp =
@@ -867,6 +891,14 @@ static bool runtime_macro_rpc_handle_request(const zmk_custom_CallRequest *raw_r
     if (!pb_decode(&req_stream, cormoran_runtime_macro_Request_fields, &req)) {
         LOG_WRN("Failed to decode runtime macro request: %s", PB_GET_ERROR(&req_stream));
         set_error(resp, "Failed to decode request");
+        return true;
+    }
+
+    /* The subsystem is UNSECURED so ListMacros/GetMacroGlobalSettings answer
+     * while locked; gate the content-reading and mutating requests here. */
+    if (request_requires_unlock(req.which_request_type) &&
+        zmk_studio_core_get_lock_state() != ZMK_STUDIO_CORE_LOCK_STATE_UNLOCKED) {
+        set_error(resp, "Studio must be unlocked to read or edit macro contents");
         return true;
     }
 
