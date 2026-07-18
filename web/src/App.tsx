@@ -25,6 +25,7 @@ type MacroSummary = {
   slot: number;
   name: string;
   encodedSize: number;
+  hasUnsavedChanges: boolean;
 };
 
 type LoadedMacro = {
@@ -201,6 +202,7 @@ export function RuntimeMacroEditor() {
           slot: macro.slot,
           name: macro.name,
           encodedSize: macro.encodedSize,
+          hasUnsavedChanges: macro.hasUnsavedChanges,
         }))
       );
       setMaxMacroBytes(response.listMacros?.maxMacroBytes || 64);
@@ -442,6 +444,43 @@ export function RuntimeMacroEditor() {
     }
   };
 
+  // Reset restores a macro to its compile-time (devicetree) default: the
+  // firmware overwrites it with that default body if one exists for its name,
+  // or deletes the macro if it has no compile-time default. Addressed by slot,
+  // like the other body-editing RPCs.
+  const resetMacro = async () => {
+    if (!loadedMacro) return;
+    if (
+      !window.confirm(
+        `Reset "${loadedMacro.name}" to its compile-time default? ` +
+          `If it has no devicetree default it will be deleted.`
+      )
+    ) {
+      return;
+    }
+
+    setIsLoading(true);
+    setMessage(null);
+    try {
+      const response = await callRPC(
+        Request.create({
+          resetMacro: { slot: loadedMacro.slot, persist: false },
+        })
+      );
+      setMessage(response.status?.message ?? `Reset "${loadedMacro.name}"`);
+      setLoadedMacro(null);
+      setSelectedName(null);
+      setJsonText("[]");
+      await refreshList();
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Failed to reset macro"
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const applyPendingMacros = async (action: "save" | "discard") => {
     setIsLoading(true);
     setMessage(null);
@@ -525,9 +564,18 @@ export function RuntimeMacroEditor() {
             }
             onClick={() => loadMacro(macro.slot)}
           >
-            <span>{macro.name || `(unnamed slot ${macro.slot})`}</span>
+            <span>
+              {macro.name || `(unnamed slot ${macro.slot})`}
+              {macro.hasUnsavedChanges && (
+                <span className="unsaved-dot" title="Unsaved changes">
+                  {" "}
+                  ●
+                </span>
+              )}
+            </span>
             <small>
               slot {macro.slot} · {macro.encodedSize} B
+              {macro.hasUnsavedChanges && " · unsaved"}
             </small>
           </button>
         ))}
@@ -649,6 +697,9 @@ export function RuntimeMacroEditor() {
                 disabled={isLoading}
               >
                 Discard Pending
+              </button>
+              <button className="btn" onClick={resetMacro} disabled={isLoading}>
+                Reset to Default
               </button>
               <button
                 className="btn danger"

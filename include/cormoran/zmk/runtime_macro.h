@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -81,6 +82,16 @@ int zmk_runtime_macro_read(const char *name, uint8_t *encoded, size_t encoded_ca
 int zmk_runtime_macro_rename(const char *old_name, const char *new_name,
                              enum zmk_custom_setting_write_mode mode);
 
+/* Encode the compile-time (devicetree) default body for the macro named
+ * `name` into `encoded` (capacity `encoded_capacity`), writing its size to
+ * `*encoded_size`. This is the same byte body the boot-time seed installs, so
+ * callers can restore a macro to its factory state. Returns -ENOENT if no
+ * `cormoran,runtime-macro-default` node declares a macro with this name (i.e.
+ * the macro has no compile-time default), -ENOSPC if the buffer is too small,
+ * or another negative errno if the default fails to encode. */
+int zmk_runtime_macro_default_encode(const char *name, uint8_t *encoded, size_t encoded_capacity,
+                                     size_t *encoded_size);
+
 /* Slot <-> name resolution, for the keymap binding UX and RPC list/get
  * responses. Returns -ENOENT if the slot is out of range or currently
  * unbound (no live macro), or (for slot_for_name) if no live macro has this
@@ -98,8 +109,10 @@ size_t zmk_runtime_macro_pool_used(void);
  * the macro's slot index and name for each. Used by the RPC list handler;
  * exposed here so it stays in one place (the keyspace-slot iteration
  * convention - see docs/design/keyspace-macros.md) instead of being
- * duplicated at each caller. `cb` returning a negative value stops the
- * iteration early and that value is returned; otherwise returns 0. */
+ * duplicated at each caller. `has_unsaved_changes` is true when the macro has
+ * an in-memory-only value not yet written to flash. `cb` returning a negative
+ * value stops the iteration early and that value is returned; otherwise
+ * returns 0. */
 typedef int (*zmk_runtime_macro_iter_cb_t)(uint32_t slot, const char *name, size_t encoded_size,
-                                           void *user_data);
+                                           bool has_unsaved_changes, void *user_data);
 int zmk_runtime_macro_for_each(zmk_runtime_macro_iter_cb_t cb, void *user_data);

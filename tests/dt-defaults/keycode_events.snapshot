@@ -1,6 +1,8 @@
 zmk: Welcome to ZMK!
 PASS: runtime_macro_dt_default_did_not_overwrite_persisted_entry
 PASS: runtime_macro_dt_default_installed name=Bindings size=25
+PASS: runtime_macro_default_encode_matches_installed
+PASS: runtime_macro_default_encode_absent_is_enoent
 PASS: runtime_macro_user_and_dt_default_coexist
 PASS: runtime_macro_dt_default_oversized_skipped
 pressed: position 0 keycode 0x7001D

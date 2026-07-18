@@ -631,6 +631,80 @@ static int test_slot_addressing(void) {
     return 0;
 }
 
+/* has_unsaved_changes (surfaced per-macro in the ListMacros RPC) reports
+ * whether a macro has an in-memory-only value not yet written to flash. A
+ * MEMORY-mode create is unsaved; a PERSIST-mode create is not. Verified
+ * through zmk_runtime_macro_for_each(), the same iteration the list handler
+ * uses. */
+struct unsaved_probe {
+    const char *name;
+    bool found;
+    bool has_unsaved_changes;
+};
+
+static int unsaved_probe_cb(uint32_t slot, const char *name, size_t encoded_size,
+                            bool has_unsaved_changes, void *user_data) {
+    ARG_UNUSED(slot);
+    ARG_UNUSED(encoded_size);
+    struct unsaved_probe *probe = user_data;
+
+    if (strcmp(name, probe->name) == 0) {
+        probe->found = true;
+        probe->has_unsaved_changes = has_unsaved_changes;
+    }
+    return 0;
+}
+
+static int probe_has_unsaved(const char *name, bool *out) {
+    struct unsaved_probe probe = {.name = name};
+    int ret = zmk_runtime_macro_for_each(unsaved_probe_cb, &probe);
+    if (ret < 0 || !probe.found) {
+        return ret < 0 ? ret : -ENOENT;
+    }
+    *out = probe.has_unsaved_changes;
+    return 0;
+}
+
+static int test_has_unsaved_changes(void) {
+    uint8_t body[] = {ZMK_RUNTIME_MACRO_FORMAT_VERSION};
+
+    int ret = zmk_runtime_macro_create("Unsaved Mem", body, sizeof(body),
+                                       ZMK_CUSTOM_SETTING_WRITE_MODE_MEMORY, NULL);
+    if (ret < 0) {
+        LOG_ERR("Memory-mode create failed: %d", ret);
+        return ret;
+    }
+
+    ret = zmk_runtime_macro_create("Saved Flash", body, sizeof(body),
+                                   ZMK_CUSTOM_SETTING_WRITE_MODE_PERSIST, NULL);
+    if (ret < 0) {
+        LOG_ERR("Persist-mode create failed: %d", ret);
+        return ret;
+    }
+
+    bool mem_unsaved = false;
+    bool flash_unsaved = true;
+    ret = probe_has_unsaved("Unsaved Mem", &mem_unsaved);
+    if (ret < 0) {
+        LOG_ERR("Probe of memory-mode macro failed: %d", ret);
+        return ret;
+    }
+    ret = probe_has_unsaved("Saved Flash", &flash_unsaved);
+    if (ret < 0) {
+        LOG_ERR("Probe of persist-mode macro failed: %d", ret);
+        return ret;
+    }
+
+    if (!mem_unsaved || flash_unsaved) {
+        LOG_ERR("has_unsaved_changes wrong: mem=%d (want 1) flash=%d (want 0)", mem_unsaved,
+                flash_unsaved);
+        return -EINVAL;
+    }
+
+    LOG_INF("PASS: runtime_macro_has_unsaved_changes");
+    return 0;
+}
+
 static int runtime_macro_test_init(void) {
     int ret = test_settings_backend_init();
     if (ret < 0) {
@@ -674,6 +748,11 @@ static int runtime_macro_test_init(void) {
     }
 
     ret = test_slot_addressing();
+    if (ret < 0) {
+        return ret;
+    }
+
+    ret = test_has_unsaved_changes();
     if (ret < 0) {
         return ret;
     }
