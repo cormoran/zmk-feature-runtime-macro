@@ -811,6 +811,48 @@ static int handle_rename_macro(const cormoran_runtime_macro_RenameMacroRequest *
     return 0;
 }
 
+/* Reset the macro at `req->slot` to its compile-time state: overwrite it with
+ * its devicetree default body if one exists for its name, otherwise delete it
+ * (a macro with no compile-time default "resets" to not existing). */
+static int handle_reset_macro(const cormoran_runtime_macro_ResetMacroRequest *req,
+                              cormoran_runtime_macro_Response *resp) {
+    char name[CONFIG_ZMK_RUNTIME_MACRO_NAME_MAX_LEN + 1];
+    int ret = resolve_slot_name(req->slot, name, sizeof(name), resp);
+    if (ret < 0) {
+        return ret;
+    }
+
+    uint8_t encoded[CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES];
+    size_t size = 0;
+    ret = zmk_runtime_macro_default_encode(name, encoded, sizeof(encoded), &size);
+
+    char message[96];
+    if (ret == -ENOENT) {
+        /* No compile-time default for this name: resetting means deleting it. */
+        ret = zmk_runtime_macro_delete(name);
+        if (ret < 0) {
+            return ret;
+        }
+        snprintf(message, sizeof(message),
+                 "Macro \"%s\" (slot %u) has no compile-time default; deleted", name, req->slot);
+        set_status(resp, 1, message);
+        return 0;
+    }
+    if (ret < 0) {
+        return ret;
+    }
+
+    ret = zmk_runtime_macro_write(name, encoded, size, write_mode(req->persist));
+    if (ret < 0) {
+        return ret;
+    }
+
+    snprintf(message, sizeof(message), "Macro \"%s\" (slot %u) reset to compile-time default", name,
+             req->slot);
+    set_status(resp, 1, message);
+    return 0;
+}
+
 static bool runtime_macro_rpc_handle_request(const zmk_custom_CallRequest *raw_request,
                                              pb_callback_t *encode_response) {
     cormoran_runtime_macro_Response *resp =
@@ -872,6 +914,9 @@ static bool runtime_macro_rpc_handle_request(const zmk_custom_CallRequest *raw_r
         break;
     case cormoran_runtime_macro_Request_rename_macro_tag:
         ret = handle_rename_macro(&req.request_type.rename_macro, resp);
+        break;
+    case cormoran_runtime_macro_Request_reset_macro_tag:
+        ret = handle_reset_macro(&req.request_type.reset_macro, resp);
         break;
     case cormoran_runtime_macro_Request_save_macros_tag:
         ret = handle_save_macros(resp);

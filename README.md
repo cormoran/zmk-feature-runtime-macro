@@ -92,11 +92,13 @@ Open the Web UI from the ZMK Studio custom subsystem list, connect over serial, 
 1. **Create** a macro by typing a name and clicking **Create** - it appears in the macro list with the slot number it was assigned.
 2. Edit its steps, then use **Write Memory** for a temporary update or **Save** for persistent storage.
 3. Bind that macro's slot number (`&rmacro <slot>`) in your keymap.
-4. **Rename** or **Delete** a macro any time from the editor.
+4. **Rename**, **Reset to Default**, or **Delete** a macro any time from the editor.
 
 Memory updates become pending custom setting changes; use **Save Pending** to persist all pending runtime macro changes, or **Discard Pending** to restore the saved values.
 
 Create/Delete/Rename are macro-domain RPCs on this module's own subsystem (`CreateMacro`/`DeleteMacro`/`RenameMacro`), addressing a macro by its **name**. A client never needs to know that macros are stored as zmk-feature-custom-settings keyspace entries under the `macro/` prefix - the storage is an implementation detail, and no separate custom-settings RPC call is required. `RenameMacro` copies the body server-side and leaves the old entry untouched if it cannot complete, so a rename never loses the macro's content.
+
+`ResetMacro` restores a macro to its compile-time state, addressing it by **slot number**: if a [devicetree default](#devicetree-default-macros) declares a macro of the same name, its body is overwritten with that default; otherwise the macro is deleted (a macro that only ever existed at runtime "resets" to not existing). Like the other body-editing RPCs it takes a `persist` flag - leave it off for a session-only reset (a persisted devicetree default is re-seeded next boot anyway), or set it to write the reset straight to flash.
 
 This module's own operational RPCs - `GetMacro`, `SetMacroStepCount`, `SetMacroStep`, and `AppendMacroStep` - address the macro to read or edit by its **slot number**, the same numeric value used for the keymap binding, not by name. Discover a macro's slot from the `ListMacros` response (the `CreateMacro` status message also names the slot it just assigned); an unbound or out-of-range slot is rejected with a clear error rather than silently doing nothing.
 

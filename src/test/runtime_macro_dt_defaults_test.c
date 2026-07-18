@@ -204,6 +204,31 @@ static int runtime_macro_dt_defaults_test_verify(void) {
     LOG_INF("PASS: runtime_macro_dt_default_installed name=Bindings size=%u",
             (unsigned)encoded_size);
 
+    /* zmk_runtime_macro_default_encode (used by the RPC reset-to-default) must
+     * reproduce exactly the body the seed installed for a name with a DT
+     * default... */
+    uint8_t default_body[CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES];
+    size_t default_size = 0;
+    ret = zmk_runtime_macro_default_encode("Bindings", default_body, sizeof(default_body),
+                                           &default_size);
+    if (ret < 0 || default_size != encoded_size ||
+        memcmp(default_body, encoded, encoded_size) != 0) {
+        LOG_ERR("default_encode(\"Bindings\") mismatch: ret=%d size=%zu (installed=%zu)", ret,
+                default_size, encoded_size);
+        return -EINVAL;
+    }
+    LOG_INF("PASS: runtime_macro_default_encode_matches_installed");
+
+    /* ...and must report -ENOENT for a name with no DT default (the reset RPC
+     * turns that into a delete). */
+    ret = zmk_runtime_macro_default_encode("No Such Default", default_body, sizeof(default_body),
+                                           &default_size);
+    if (ret != -ENOENT) {
+        LOG_ERR("default_encode of a name with no DT default should be -ENOENT: ret=%d", ret);
+        return -EINVAL;
+    }
+    LOG_INF("PASS: runtime_macro_default_encode_absent_is_enoent");
+
     /* A user macro created AFTER settings_load() (i.e. during normal RPC use)
      * must coexist fine alongside the already-seeded DT defaults. */
     uint8_t user_body[] = {ZMK_RUNTIME_MACRO_FORMAT_VERSION};

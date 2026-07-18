@@ -466,38 +466,73 @@ static int encode_bindings(struct runtime_macro_encode_state *s,
     return 0;
 }
 
-static int install_one_default(const struct runtime_macro_default_config *cfg) {
-    uint8_t encoded[CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES];
+/* Encode one DT default config's body (version byte + text + bindings) into
+ * `buf`, writing its size to `*out_size`. Shared by the boot-time seed and the
+ * public zmk_runtime_macro_default_encode() (RPC reset-to-default). */
+static int encode_default_body(const struct runtime_macro_default_config *cfg, uint8_t *buf,
+                               size_t capacity, size_t *out_size) {
     struct runtime_macro_encode_state state = {
-        .buf = encoded,
-        .capacity = sizeof(encoded),
+        .buf = buf,
+        .capacity = capacity,
     };
 
     int ret = emit_byte(&state, ZMK_RUNTIME_MACRO_FORMAT_VERSION);
     if (ret < 0) {
-        goto encode_failed;
+        return ret;
     }
 
     if (cfg->text) {
         ret = encode_text(&state, cfg->text);
         if (ret < 0) {
-            goto encode_failed;
+            return ret;
         }
     }
 
     if (cfg->bindings_len > 0) {
         ret = encode_bindings(&state, cfg);
         if (ret < 0) {
-            goto encode_failed;
+            return ret;
         }
     }
 
     ret = flush_packed_sequence(&state);
     if (ret < 0) {
-        goto encode_failed;
+        return ret;
     }
 
     ret = zmk_runtime_macro_validate_encoded(state.buf, state.size);
+    if (ret < 0) {
+        return ret;
+    }
+
+    *out_size = state.size;
+    return 0;
+}
+
+/* Public: encode the DT default body for the macro named `name`. Returns
+ * -ENOENT if no DT default declares that name. See the header for the full
+ * contract. */
+int zmk_runtime_macro_default_encode(const char *name, uint8_t *encoded, size_t encoded_capacity,
+                                     size_t *encoded_size) {
+    if (!name) {
+        return -EINVAL;
+    }
+
+    for (size_t i = 0; i < RUNTIME_MACRO_DEFAULT_COUNT; i++) {
+        const struct runtime_macro_default_config *cfg = runtime_macro_default_configs[i];
+        if (strcmp(cfg->name, name) == 0) {
+            return encode_default_body(cfg, encoded, encoded_capacity, encoded_size);
+        }
+    }
+
+    return -ENOENT;
+}
+
+static int install_one_default(const struct runtime_macro_default_config *cfg) {
+    uint8_t encoded[CONFIG_ZMK_RUNTIME_MACRO_MAX_BYTES];
+    size_t size = 0;
+
+    int ret = encode_default_body(cfg, encoded, sizeof(encoded), &size);
     if (ret < 0) {
         goto encode_failed;
     }
@@ -509,8 +544,8 @@ static int install_one_default(const struct runtime_macro_default_config *cfg) {
      * default is a per-session-only removal - it comes back next boot,
      * exactly like a factory default. To remove a DT default permanently,
      * remove it from the devicetree. */
-    ret = zmk_runtime_macro_create(cfg->name, state.buf, state.size,
-                                   ZMK_CUSTOM_SETTING_WRITE_MODE_MEMORY, NULL);
+    ret = zmk_runtime_macro_create(cfg->name, encoded, size, ZMK_CUSTOM_SETTING_WRITE_MODE_MEMORY,
+                                   NULL);
     if (ret == -EEXIST) {
         LOG_DBG("Runtime macro default: \"%s\" already exists, not overwriting", cfg->name);
         return 0;
@@ -520,7 +555,7 @@ static int install_one_default(const struct runtime_macro_default_config *cfg) {
         return ret;
     }
 
-    LOG_DBG("Runtime macro default: installed \"%s\" (%u bytes)", cfg->name, (unsigned)state.size);
+    LOG_DBG("Runtime macro default: installed \"%s\" (%u bytes)", cfg->name, (unsigned)size);
     return 0;
 
 encode_failed:
@@ -552,5 +587,18 @@ static int runtime_macro_seed_dt_defaults(void) {
  * once after every source has loaded. */
 SETTINGS_STATIC_HANDLER_DEFINE(runtime_macro_dt_defaults, "runtime_macro_dt_defaults", NULL, NULL,
                                runtime_macro_seed_dt_defaults, NULL);
+
+#else /* !DT_HAS_COMPAT_STATUS_OKAY(DT_DRV_COMPAT) */
+
+/* No `cormoran,runtime-macro-default` nodes in the devicetree: no macro has a
+ * compile-time default, so a reset can only ever mean "delete". */
+int zmk_runtime_macro_default_encode(const char *name, uint8_t *encoded, size_t encoded_capacity,
+                                     size_t *encoded_size) {
+    ARG_UNUSED(name);
+    ARG_UNUSED(encoded);
+    ARG_UNUSED(encoded_capacity);
+    ARG_UNUSED(encoded_size);
+    return -ENOENT;
+}
 
 #endif /* DT_HAS_COMPAT_STATUS_OKAY(DT_DRV_COMPAT) */
